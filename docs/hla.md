@@ -24,33 +24,9 @@ Deep Agents is **not** the long-term dependency. Early on it sits behind an inte
 
 Think in four layers. Cuttle uses more than one of them.
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│  Cuttle CLI / product                                       │  we build
-│  commands, skills UX, config, sessions, provisioner UI      │
-└────────────────────────────┬────────────────────────────────┘
-                             │
-┌────────────────────────────▼────────────────────────────────┐
-│  Cuttle Orchestrator                                        │  we build
-│  LangGraph StateGraph: PLAN → … → DONE                      │
-│  deterministic — almost no “let the LLM choose the phase”   │
-└─────────────┬──────────────────────────────┬────────────────┘
-              │ invokes                      │ invokes
-┌─────────────▼──────────────┐ ┌─────────────▼────────────────┐
-│  Brain Agent Runtime       │ │  Hands Agent Runtime         │
-│  bootstrap: create_deep_   │ │  bootstrap: create_deep_     │
-│  agent(...)                │ │  agent(...)                  │
-│  end state: our runtime    │ │  end state: our runtime      │
-│  (still LangGraph graph)   │ │  (still LangGraph graph)     │
-└─────────────┬──────────────┘ └─────────────┬────────────────┘
-              │                              │
-┌─────────────▼──────────────────────────────▼────────────────┐
-│  LangChain primitives                                       │
-│  init_chat_model / ChatOpenAI / ChatOllama / …              │
-│  tools, middleware, messages, structured output             │
-│  checkpointers, stores                                      │
-└─────────────────────────────────────────────────────────────┘
-```
+![Cuttle LangChain stack layers](diagrams/cuttle-stack.svg)
+
+*Spec: [`diagrams/cuttle-stack.json`](diagrams/cuttle-stack.json) · rendered with Shipmates `diagram`*
 
 | Piece | Library | Who owns behaviour |
 |---|---|---|
@@ -69,37 +45,17 @@ So: **two graphs**, not one.
 
 ## 3. End-state system diagram
 
-```text
-                         ┌──────────────────────────────┐
-                         │     User / IDE extension     │
-                         └──────────────┬───────────────┘
-                                        │
-                         ┌──────────────▼───────────────┐
-                         │         Cuttle CLI           │
-                         │  commands · skills · config  │
-                         │  sessions · permissions· MCP │
-                         └──────────────┬───────────────┘
-                                        │
-                         ┌──────────────▼───────────────┐
-                         │  Orchestrator (LangGraph)    │
-                         │  PLAN→VALIDATE→DISPATCH→EVAL │
-                         │  model bind · budgets · IDs  │
-                         └───────┬──────────────┬───────┘
-                                 │              │
-                    ┌────────────▼──┐      ┌────▼────────────┐
-                    │ Brain Runtime │      │ Hands Runtime   │
-                    │ (frontier)    │      │ (local / cheap) │
-                    └───────┬───────┘      └────┬────────────┘
-                            │         ┌─────────▼──────────┐
-                            │         │ Local Provisioner  │
-                            │         │ llmfit → download  │
-                            │         │ → deploy runtime   │
-                            │         └─────────┬──────────┘
-                    ┌───────▼───────────────────▼──────────┐
-                    │     Tool Host + Workspace            │
-                    │  FS · shell · MCP · git · sandbox    │
-                    └──────────────────────────────────────┘
-```
+![Cuttle system overview](diagrams/cuttle-system-overview.svg)
+
+*Spec: [`diagrams/cuttle-system-overview.json`](diagrams/cuttle-system-overview.json)*
+
+Request path across those pieces:
+
+![Cuttle implement request path](diagrams/cuttle-implement-sequence.svg)
+
+*Spec: [`diagrams/cuttle-implement-sequence.json`](diagrams/cuttle-implement-sequence.json)*
+
+Provisioner sits beside the orchestrator (called from `ensure_hands`), not inside the LangChain tool loop.
 
 ---
 
@@ -153,46 +109,11 @@ Contracts (`Directive`, `Step`, `StepResult`, `EvalReport`, `ModelRef`, `UsageEv
 
 ### 4.3 Nodes and edges
 
-```text
-                    ┌─────────────┐
-                    │  ensure_    │
-           ┌───────►│  hands      │──┐
-           │        └─────────────┘  │
-           │                         ▼
-┌──────┐   │        ┌─────────────┐  ┌─────────────┐
-│start │───┴───────►│    plan     │─►│  validate   │
-└──────┘            │  (brain)    │  └──────┬──────┘
-                    └─────────────┘         │
-                           ▲                ▼
-                           │         ┌──────────────┐
-                           │         │ approve?     │──no──► failed / aborted
-                           │         │ (optional)   │
-                           │         └──────┬───────┘
-                           │                │ yes
-                           │                ▼
-                           │         ┌──────────────┐
-                           │         │  dispatch    │
-                           │         │  (hands)     │
-                           │         └──────┬───────┘
-                           │                ▼
-                           │         ┌──────────────┐
-                           │         │    eval      │
-                           │         └──────┬───────┘
-                           │                ▼
-                           │         ┌──────────────┐
-                           │    ┌────│  route_after │
-                           │    │    │    eval      │
-                           │    │    └──────────────┘
-                           │    │
-                           │    ├── pass + more steps ──► dispatch (next step)
-                           │    ├── pass + no steps ────► final_eval ──► succeed
-                           │    ├── fail + retries left ► dispatch (same step)
-                           │    ├── fail + escalate OK ─► dispatch (escalate model)
-                           │    ├── fail + replan OK ───► plan (brain again)
-                           │    └── fail + exhausted ───► fail
-                           │
-                           └─────────────────────────────────────────┘
-```
+![Cuttle orchestration loop](diagrams/cuttle-orchestrator-loop.svg)
+
+*Spec: [`diagrams/cuttle-orchestrator-loop.json`](diagrams/cuttle-orchestrator-loop.json)*
+
+Side arrows from `route_after_eval`: **next / retry / escalate** → `dispatch`; **replan** → `plan`; **exhausted or final pass** → `succeed / fail`. Optional HITL approval sits between `validate` and `dispatch` (not drawn; interrupt in LangGraph).
 
 | Node | LLM? | What it does |
 |---|---|---|
@@ -529,5 +450,27 @@ The orchestration **loop shape does not change** when we leave Deep Agents. Only
 | Where does Deep Agents sit? | **Bootstrap** behind `AgentRuntime`, not the outer loop |
 | What do we implement first? | Contracts → evals → orchestrator → DeepAgentsRuntime → thin CLI |
 | What is the end state? | Same orchestrator; our own agent runtime; full CLI; llmfit provisioner |
+
+## Diagrams
+
+Committed SVGs under [`diagrams/`](diagrams/), built with the Shipmates [`diagram`](https://github.com/saman-mb/shipmates) tool (JSON spec → SVG; not Mermaid).
+
+| Diagram | Spec | SVG |
+|---|---|---|
+| Stack layers | [`cuttle-stack.json`](diagrams/cuttle-stack.json) | [`cuttle-stack.svg`](diagrams/cuttle-stack.svg) |
+| System overview | [`cuttle-system-overview.json`](diagrams/cuttle-system-overview.json) | [`cuttle-system-overview.svg`](diagrams/cuttle-system-overview.svg) |
+| Implement sequence | [`cuttle-implement-sequence.json`](diagrams/cuttle-implement-sequence.json) | [`cuttle-implement-sequence.svg`](diagrams/cuttle-implement-sequence.svg) |
+| Orchestrator loop | [`cuttle-orchestrator-loop.json`](diagrams/cuttle-orchestrator-loop.json) | [`cuttle-orchestrator-loop.svg`](diagrams/cuttle-orchestrator-loop.svg) |
+
+Re-render:
+
+```bash
+DIAG=~/.agents/skills/shipmates-diagram/diagram.py
+OUT=docs/diagrams
+python3 "$DIAG" --spec "$OUT/cuttle-stack.json" --out "$OUT/cuttle-stack.svg"
+python3 "$DIAG" --spec "$OUT/cuttle-system-overview.json" --out "$OUT/cuttle-system-overview.svg"
+python3 "$DIAG" --spec "$OUT/cuttle-implement-sequence.json" --out "$OUT/cuttle-implement-sequence.svg"
+python3 "$DIAG" --spec "$OUT/cuttle-orchestrator-loop.json" --out "$OUT/cuttle-orchestrator-loop.svg"
+```
 
 Related: [architecture.md](architecture.md), [viability.md](viability.md).

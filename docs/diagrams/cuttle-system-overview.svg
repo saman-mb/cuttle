@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1282" height="149" viewBox="0 0 1282 149" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<rect x="0" y="0" width="1282" height="149" fill="#14110F"/>
+<rect x="0.5" y="0.5" width="1281" height="148" rx="16" fill="#1D1916" stroke="#332C26" stroke-width="1"/>
+<text x="641" y="21.08" text-anchor="middle" font-size="14" fill="#B3A99F">Cuttle — system overview</text>
+<line x1="158" y1="98" x2="266" y2="98" stroke="#D97757" stroke-width="2" stroke-linecap="round"/>
+<polygon points="266,98 255,103.5 255,92.5" fill="#D97757"/>
+<line x1="396" y1="98" x2="504" y2="98" stroke="#D97757" stroke-width="2" stroke-linecap="round"/>
+<polygon points="504,98 493,103.5 493,92.5" fill="#D97757"/>
+<line x1="652" y1="98" x2="760" y2="98" stroke="#D97757" stroke-width="2" stroke-linecap="round"/>
+<polygon points="760,98 749,103.5 749,92.5" fill="#D97757"/>
+<line x1="917" y1="98" x2="1025" y2="98" stroke="#D97757" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1025,98 1014,103.5 1014,92.5" fill="#D97757"/>
+<rect x="28" y="75" width="130" height="46" rx="10" fill="#211C18" stroke="#4A4139" stroke-width="1.5"/>
+<text x="93" y="103.25" text-anchor="middle" font-size="15" fill="#F2EDE8">User / IDE</text>
+<rect x="266" y="75" width="130" height="46" rx="10" fill="#211C18" stroke="#4A4139" stroke-width="1.5"/>
+<text x="331" y="103.25" text-anchor="middle" font-size="15" fill="#F2EDE8">Cuttle CLI</text>
+<rect x="504" y="75" width="148" height="46" rx="10" fill="#211C18" stroke="#4A4139" stroke-width="1.5"/>
+<text x="578" y="103.25" text-anchor="middle" font-size="15" fill="#F2EDE8">Orchestrator</text>
+<rect x="760" y="75" width="157" height="46" rx="10" fill="#211C18" stroke="#4A4139" stroke-width="1.5"/>
+<text x="838.5" y="103.25" text-anchor="middle" font-size="15" fill="#F2EDE8">Brain | Hands</text>
+<rect x="1025" y="75" width="229" height="46" rx="10" fill="#211C18" stroke="#4A4139" stroke-width="1.5"/>
+<text x="1139.5" y="103.25" text-anchor="middle" font-size="15" fill="#F2EDE8">Tool host + workspace</text>
+<rect x="653.8" y="62" width="104.4" height="22" rx="6" fill="#1D1916"/>
+<text x="706" y="77.2" text-anchor="middle" font-size="12" fill="#E8916F">bound models</text>
+<rect x="904.4" y="62" width="133.2" height="22" rx="6" fill="#1D1916"/>
+<text x="971" y="77.2" text-anchor="middle" font-size="12" fill="#E8916F">FS / shell / MCP</text>
+</svg>

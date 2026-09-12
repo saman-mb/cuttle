@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="476" height="880" viewBox="0 0 476 880" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<rect x="0" y="0" width="476" height="880" fill="#14110F"/>
+<rect x="0.5" y="0.5" width="475" height="879" rx="16" fill="#1D1916" stroke="#332C26" stroke-width="1"/>
+<text x="238" y="21.08" text-anchor="middle" font-size="14" fill="#B3A99F">Cuttle — orchestration loop</text>
+<line x1="223.6" y1="108" x2="223.6" y2="186" stroke="#D97757" stroke-width="2" stroke-linecap="round"/>
+<polygon points="223.6,186 218.1,175 229.1,175" fill="#D97757"/>
+<line x1="223.6" y1="232" x2="223.6" y2="310" stroke="#D97757" stroke-width="2" stroke-linecap="round"/>
+<polygon points="223.6,310 218.1,299 229.1,299" fill="#D97757"/>
+<line x1="223.6" y1="356" x2="223.6" y2="434" stroke="#D97757" stroke-width="2" stroke-linecap="round"/>
+<polygon points="223.6,434 218.1,423 229.1,423" fill="#D97757"/>
+<line x1="223.6" y1="480" x2="223.6" y2="558" stroke="#D97757" stroke-width="2" stroke-linecap="round"/>
+<polygon points="223.6,558 218.1,547 229.1,547" fill="#D97757"/>
+<line x1="223.6" y1="604" x2="223.6" y2="682" stroke="#D97757" stroke-width="2" stroke-linecap="round"/>
+<polygon points="223.6,682 218.1,671 229.1,671" fill="#D97757"/>
+<path d="M 315.6 705 C 369.6 705 369.6 457 315.6 457" fill="none" stroke="#D97757" stroke-width="2" stroke-linecap="round"/>
+<polygon points="315.6,457 326.6,451.5 326.6,462.5" fill="#D97757"/>
+<path d="M 315.6 705 C 369.6 705 369.6 209 297.6 209" fill="none" stroke="#D97757" stroke-width="2" stroke-linecap="round"/>
+<polygon points="297.6,209 308.6,203.5 308.6,214.5" fill="#D97757"/>
+<line x1="223.6" y1="728" x2="223.6" y2="806" stroke="#D97757" stroke-width="2" stroke-linecap="round"/>
+<polygon points="223.6,806 218.1,795 229.1,795" fill="#D97757"/>
+<rect x="149.6" y="62" width="148" height="46" rx="10" fill="#211C18" stroke="#4A4139" stroke-width="1.5"/>
+<text x="223.6" y="90.25" text-anchor="middle" font-size="15" fill="#F2EDE8">ensure_hands</text>
+<rect x="149.6" y="186" width="148" height="46" rx="10" fill="#211C18" stroke="#4A4139" stroke-width="1.5"/>
+<text x="223.6" y="214.25" text-anchor="middle" font-size="15" fill="#F2EDE8">plan (brain)</text>
+<rect x="167.6" y="310" width="112" height="46" rx="10" fill="#211C18" stroke="#4A4139" stroke-width="1.5"/>
+<text x="223.6" y="338.25" text-anchor="middle" font-size="15" fill="#F2EDE8">validate</text>
+<rect x="131.6" y="434" width="184" height="46" rx="10" fill="#211C18" stroke="#4A4139" stroke-width="1.5"/>
+<text x="223.6" y="462.25" text-anchor="middle" font-size="15" fill="#F2EDE8">dispatch (hands)</text>
+<rect x="175.6" y="558" width="96" height="46" rx="10" fill="#211C18" stroke="#4A4139" stroke-width="1.5"/>
+<text x="223.6" y="586.25" text-anchor="middle" font-size="15" fill="#F2EDE8">eval</text>
+<rect x="131.6" y="682" width="184" height="46" rx="10" fill="#211C18" stroke="#4A4139" stroke-width="1.5"/>
+<text x="223.6" y="710.25" text-anchor="middle" font-size="15" fill="#F2EDE8">route_after_eval</text>
+<rect x="140.6" y="806" width="166" height="46" rx="10" fill="#211C18" stroke="#4A4139" stroke-width="1.5"/>
+<text x="223.6" y="834.25" text-anchor="middle" font-size="15" fill="#F2EDE8">succeed / fail</text>
+<rect x="136" y="384" width="75.6" height="22" rx="6" fill="#1D1916"/>
+<text x="173.8" y="399.2" text-anchor="middle" font-size="12" fill="#E8916F">approved</text>
+<rect x="264.3" y="570" width="183.6" height="22" rx="6" fill="#1D1916"/>
+<text x="356.1" y="585.2" text-anchor="middle" font-size="12" fill="#E8916F">next / retry / escalate</text>
+<rect x="323.25" y="446" width="61.2" height="22" rx="6" fill="#1D1916"/>
+<text x="353.85" y="461.2" text-anchor="middle" font-size="12" fill="#E8916F">replan</text>
+<rect x="28" y="756" width="183.6" height="22" rx="6" fill="#1D1916"/>
+<text x="119.8" y="771.2" text-anchor="middle" font-size="12" fill="#E8916F">exhausted or final pass</text>
+</svg>

@@ -1,0 +1,16 @@
+{
+  "kind": "flow",
+  "direction": "down",
+  "title": "Cuttle — LangChain stack layers",
+  "nodes": [
+    {"id": "cli", "label": "Cuttle CLI / product"},
+    {"id": "orch", "label": "Orchestrator (LangGraph)"},
+    {"id": "runtime", "label": "Brain + Hands runtimes"},
+    {"id": "lc", "label": "LangChain models / tools"}
+  ],
+  "edges": [
+    {"from": "cli", "to": "orch", "label": "start run"},
+    {"from": "orch", "to": "runtime", "label": "invoke role"},
+    {"from": "runtime", "to": "lc", "label": "chat + tools"}
+  ]
+}

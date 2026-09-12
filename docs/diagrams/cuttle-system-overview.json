@@ -1,0 +1,18 @@
+{
+  "kind": "flow",
+  "direction": "right",
+  "title": "Cuttle — system overview",
+  "nodes": [
+    {"id": "user", "label": "User / IDE"},
+    {"id": "cli", "label": "Cuttle CLI"},
+    {"id": "orch", "label": "Orchestrator"},
+    {"id": "roles", "label": "Brain | Hands"},
+    {"id": "tools", "label": "Tool host + workspace"}
+  ],
+  "edges": [
+    {"from": "user", "to": "cli"},
+    {"from": "cli", "to": "orch"},
+    {"from": "orch", "to": "roles", "label": "bound models"},
+    {"from": "roles", "to": "tools", "label": "FS / shell / MCP"}
+  ]
+}

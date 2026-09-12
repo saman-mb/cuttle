@@ -1,0 +1,17 @@
+{
+  "kind": "sequence",
+  "title": "Cuttle — implement request path",
+  "actors": ["CLI", "Orchestrator", "Brain", "Hands", "Evals", "Provisioner"],
+  "messages": [
+    {"from": "CLI", "to": "Orchestrator", "label": "implement(goal)"},
+    {"from": "Orchestrator", "to": "Provisioner", "label": "ensure local hands"},
+    {"from": "Provisioner", "to": "Orchestrator", "label": "hands ready", "return": true},
+    {"from": "Orchestrator", "to": "Brain", "label": "plan → Directive"},
+    {"from": "Brain", "to": "Orchestrator", "label": "Directive JSON", "return": true},
+    {"from": "Orchestrator", "to": "Hands", "label": "dispatch(Step)"},
+    {"from": "Hands", "to": "Orchestrator", "label": "StepResult", "return": true},
+    {"from": "Orchestrator", "to": "Evals", "label": "run acceptance"},
+    {"from": "Evals", "to": "Orchestrator", "label": "EvalReport", "return": true},
+    {"from": "Orchestrator", "to": "CLI", "label": "report + costs", "return": true}
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "kind": "flow",
+  "direction": "down",
+  "title": "Cuttle — orchestration loop",
+  "nodes": [
+    {"id": "ensure", "label": "ensure_hands"},
+    {"id": "plan", "label": "plan (brain)"},
+    {"id": "validate", "label": "validate"},
+    {"id": "dispatch", "label": "dispatch (hands)"},
+    {"id": "eval", "label": "eval"},
+    {"id": "route", "label": "route_after_eval"},
+    {"id": "done", "label": "succeed / fail"}
+  ],
+  "edges": [
+    {"from": "ensure", "to": "plan"},
+    {"from": "plan", "to": "validate"},
+    {"from": "validate", "to": "dispatch", "label": "approved"},
+    {"from": "dispatch", "to": "eval"},
+    {"from": "eval", "to": "route"},
+    {"from": "route", "to": "dispatch", "label": "next / retry / escalate"},
+    {"from": "route", "to": "plan", "label": "replan"},
+    {"from": "route", "to": "done", "label": "exhausted or final pass"}
+  ]
+}
