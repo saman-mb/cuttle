@@ -129,13 +129,13 @@ Hands never see the full frontier transcript — only the current step plus orch
 
 ### Provider hub (OpenCode-class connect UX)
 
-Operators should not hand-edit opaque model strings as the only path:
+Operators should complete the full flow **inside the Rust TUI** without dropping to a separate shell:
 
-1. `cuttle auth login` / `/connect` — pick a vendor, paste key (or OAuth where supported)
-2. `cuttle models` / `/models` — see everything authenticated + local/compat
-3. Assign catalog picks to **brain / hands / escalate** slots
+1. `/connect` — pick a vendor, paste key (or OAuth where supported); list/logout connected providers
+2. `/models` — see everything authenticated + local/compat; assign to **brain / hands / escalate**
+3. Run `implement` with those pinned roles
 
-Implementation stays modular: provider registry + auth store + catalog + capability matrix + `backends/` factory. Adding a cloud vendor is a registry/adapter row, not an orchestrator change. OpenAI-compatible “Other” covers the long tail; local provisioner registers hands into the same catalog.
+CLI (`cuttle auth` / `cuttle models`) is parity for scripts and `--plain` — same engine verbs, not a different product path. Implementation stays modular: provider registry + auth store + catalog + capability matrix + `backends/` factory. Adding a cloud vendor is a registry/adapter row, not an orchestrator change. OpenAI-compatible “Other” covers the long tail; local provisioner registers hands into the same catalog.
 
 ---
 

@@ -27,7 +27,7 @@ Do not invent a different control plane than the HLA.
 3. **Own the agent runtime from day one.** Brain/hands run on Cuttle’s tool loop (`create_agent` / LangGraph model↔tools), not Deep Agents. No third-party `task` / subagent router — ever.
 4. **Two graphs:** outer Cuttle LangGraph orchestrator; inner brain/hands agent loops (also Cuttle-owned).
 5. **Local provisioner (llmfit → download → deploy) is first-class.** Do not assume the user already set up Ollama by hand as the only path.
-6. **Provider hub is first-class.** Many vendors via a registry + adapters; easy auth (`cuttle auth` / `/connect`); catalog makes models available; operators assign to brain/hands/escalate. Secrets stay in the auth store — not in committed config. Orchestrator still pins roles; agents do not self-select providers mid-run.
+6. **Provider hub is first-class.** Many vendors via a registry + adapters; easy auth and catalog. **Full connect → models → role-assign must work inside the Rust TUI** (primary interactive path); CLI is the same engine verbs for scripts/`--plain`. Secrets stay in the auth store — not in committed config. Orchestrator still pins roles; agents do not self-select providers mid-run.
 7. **Default concurrency:** one hands writer. Optional read-only scouts later. No swarm-as-default.
 8. **Process split:** Python owns the engine (LangGraph + runtime + evals + provisioner + provider hub). The interactive TUI is a **Rust** binary that renders a versioned event stream from the engine — it must not own phases, model binding, or evals.
 

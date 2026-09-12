@@ -225,14 +225,20 @@ This section is the “what do we call in the stack?” map.
 
 ### 5.2 Provider hub + model binding
 
-Operator UX (OpenCode-class): **connect many vendors → auth once → models become available → assign to roles.** The orchestrator still owns binding at run time; agents never pick providers mid-run.
+Operator UX (OpenCode-class): **connect many vendors → auth once → models become available → assign to roles.** The **default place to do this is the Rust TUI** — you should not need to leave the terminal UI for auth, catalog, role assign, or running `implement`. Python CLI (`cuttle auth` / `cuttle models` / `--plain`) is the same engine verbs for scripts and non-TTY fallbacks.
 
 ```text
-cuttle auth login /connect  →  credential store (~/.config/cuttle/auth.json)
-cuttle models               →  catalog of models you can use right now
-assign to role              →  brain | hands | escalate  (ModelRef in config)
-factory                     →  BaseChatModel (LangChain)
+Inside TUI (primary):
+  /connect  →  pick vendor, paste key / OAuth  →  auth store
+  /models   →  browse catalog, assign brain | hands | escalate
+  implement →  orchestrator uses pinned ModelRefs
+
+Same engine verbs (parity):
+  cuttle auth login | list | logout
+  cuttle models
 ```
+
+Rust owns **interactive chrome** (pickers, secret input, role assign UI). Python owns **auth store, catalog, factory, and role persistence** — TUI never keeps a second credential store or decides binding mid-step.
 
 #### Layers (modular — add a vendor without touching LangGraph)
 
@@ -439,8 +445,8 @@ Ordered roughly by dependency. Packages map to repo folders.
 ### B. Provider hub + model factory (`src/cuttle/backends/`, `providers/`, `auth/`, config)
 
 - [ ] Provider registry entries (id, auth kind, adapter kind, base URL, catalog source)  
-- [ ] Auth store + `cuttle auth login | list | logout` (credentials out of repo config)  
-- [ ] Catalog: models available after auth (+ optional live list); whitelist/blacklist  
+- [ ] Auth store + `cuttle auth login | list | logout` + **engine RPCs for in-TUI `/connect`** (credentials out of repo config)  
+- [ ] Catalog: models available after auth (+ optional live list); whitelist/blacklist; **TUI `/models` role-assign RPCs**  
 - [ ] Custom OpenAI-compatible provider (“Other”) via config block  
 - [ ] Load user/project config (role `ModelRef`s only — no secrets)  
 - [ ] Resolve env overrides  
@@ -502,7 +508,7 @@ Ordered roughly by dependency. Packages map to repo folders.
 - [ ] Native interactive TUI crate (fast startup / rendering)  
 - [ ] Spawns or attaches to Python engine; speaks the same event protocol as E2 text CLI  
 - [ ] Render-only: no phase/routing/model decisions in Rust  
-- [ ] `/connect` + `/models` UX calling Python auth/catalog verbs (role assign only)  
+- [ ] `/connect` + `/models` **full in-TUI provider hub** (list vendors, auth, logout, browse catalog, assign brain/hands/escalate) via engine RPCs — no leaving the TUI for the happy path  
 - [ ] Coastal chrome + simple chromatophore shape/pulse; `--plain` / `NO_COLOR` / reduced-motion  
 - [ ] Must not load marketing mascot assets  
 

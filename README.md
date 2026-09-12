@@ -29,7 +29,7 @@ cuttle implement "add admin login UI"
 - **Rust** interactive TUI (event consumer; no LangGraph in Rust)
 - Versioned engine↔TUI event protocol (shared with plain text CLI)
 - Typer/plain CLI always available (`--plain` / `NO_COLOR`)
-- **Providers:** connect many vendors (`cuttle auth`), browse available models (`cuttle models`), assign to brain/hands/escalate
+- **Providers:** connect many vendors, browse models, assign brain/hands/escalate — **all inside the Rust TUI** (CLI parity for scripts/`--plain`)
 
 ## Setup
 
