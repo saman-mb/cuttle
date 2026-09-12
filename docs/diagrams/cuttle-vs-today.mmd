@@ -1,0 +1,42 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#0f766e",
+    "primaryTextColor": "#ecfdf5",
+    "primaryBorderColor": "#115e59",
+    "lineColor": "#5eead4",
+    "textColor": "#ecfdf5",
+    "clusterBkg": "#022c22",
+    "clusterBorder": "#14b8a6",
+    "titleColor": "#99f6e4",
+    "edgeLabelBackground": "#022c22",
+    "fontFamily": "IBM Plex Sans, ui-sans-serif, system-ui, sans-serif"
+  },
+  "flowchart": {
+    "curve": "basis",
+    "padding": 20,
+    "nodeSpacing": 36,
+    "rankSpacing": 56,
+    "htmlLabels": true
+  }
+}}%%
+flowchart LR
+  subgraph TODAY["Typical agent CLIs today"]
+    direction TB
+    T1["Single frontier loop<br/>or prompt-hoped routing"]
+    T2["Subagents inherit parent model<br/>or unreliable spawn overrides"]
+    T3["Slash command = instructions<br/>not enforced model binding"]
+    T4["LLM judge / long retries<br/>on expensive tokens"]
+    T1 --> T2 --> T3 --> T4
+  end
+
+  subgraph CUTTLE["Cuttle"]
+    direction TB
+    C1["Orchestrator pins models"]
+    C2["Brain emits Directive only"]
+    C3["Hands execute bounded steps"]
+    C4["Deterministic evals gate progress"]
+    C1 --> C2 --> C3 --> C4
+  end
+
+  TODAY -.->|"Cuttle wedge"| CUTTLE

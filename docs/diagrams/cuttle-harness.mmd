@@ -1,0 +1,66 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#0f766e",
+    "primaryTextColor": "#ecfdf5",
+    "primaryBorderColor": "#115e59",
+    "secondaryColor": "#134e4a",
+    "secondaryTextColor": "#ccfbf1",
+    "secondaryBorderColor": "#0f766e",
+    "tertiaryColor": "#042f2e",
+    "lineColor": "#5eead4",
+    "textColor": "#ecfdf5",
+    "mainBkg": "#042f2e",
+    "nodeBorder": "#2dd4bf",
+    "clusterBkg": "#022c22",
+    "clusterBorder": "#14b8a6",
+    "titleColor": "#99f6e4",
+    "edgeLabelBackground": "#022c22",
+    "fontFamily": "IBM Plex Sans, ui-sans-serif, system-ui, sans-serif"
+  },
+  "flowchart": {
+    "curve": "basis",
+    "padding": 16,
+    "nodeSpacing": 40,
+    "rankSpacing": 50,
+    "htmlLabels": true
+  }
+}}%%
+flowchart TB
+  subgraph UX["CLI / IDE"]
+    U["Developer · cuttle implement …"]
+  end
+
+  subgraph ORCH["Harness orchestrator — YOUR code, no LLM"]
+    direction TB
+    P["PLAN"] --> V["VALIDATE"]
+    V --> D["DISPATCH"]
+    D --> E["EVAL"]
+    E --> R{"Pass?"}
+    R -->|yes| N{"More steps?"}
+    N -->|yes| D
+    N -->|no| DONE["DONE · cost report"]
+    R -->|retry| D
+    R -->|escalate| X["ESCALATE · mid-tier hands or brain replan"]
+    X --> D
+  end
+
+  subgraph BRAIN["Brain — frontier"]
+    B["Deep Agent · read / search only<br/>emit Directive · no code mutation"]
+  end
+
+  subgraph HANDS["Hands pool — local by default"]
+    H["Deep Agent · edit / bash / tools<br/>one Step · scoped paths · fresh context"]
+  end
+
+  subgraph EVAL["Eval engine — deterministic"]
+    G["pytest · tsc · ripgrep · path allowlist<br/>no LLM-as-judge"]
+  end
+
+  U --> P
+  P --> B
+  B -->|"Directive JSON"| V
+  D --> H
+  H -->|"StepResult + diff"| E
+  E --> G
+  G --> R
