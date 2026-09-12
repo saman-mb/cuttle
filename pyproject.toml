@@ -1,0 +1,76 @@
+[project]
+name = "cuttle"
+version = "0.0.1"
+description = "Frontier mind. Local hands. Agentic coding harness with orchestrator-owned brain/hands routing."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+authors = [{ name = "saman-mb" }]
+keywords = ["agents", "langgraph", "langchain", "cli", "local-llm"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Environment :: Console",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development",
+]
+dependencies = [
+  # Pinned loosely while the project is scaffold-only; tighten when implementing.
+  "langgraph>=0.4",
+  "langchain>=0.3",
+  "langchain-core>=0.3",
+  "pydantic>=2.0",
+  "typer>=0.12",
+  "rich>=13.0",
+  "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+deepagents = [
+  "deepagents>=0.2",
+]
+local = [
+  "langchain-ollama>=0.2",
+  "huggingface-hub>=0.26",
+]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.24",
+  "ruff>=0.8",
+  "mypy>=1.13",
+]
+
+[project.scripts]
+cuttle = "cuttle.cli.main:app"
+
+[project.urls]
+Homepage = "https://github.com/saman-mb/cuttle"
+Documentation = "https://github.com/saman-mb/cuttle/blob/main/docs/hla.md"
+Repository = "https://github.com/saman-mb/cuttle"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cuttle"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["cuttle"]
+mypy_path = "src"

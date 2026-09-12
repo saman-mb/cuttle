@@ -345,7 +345,7 @@ LangChain only sees a normal chat model endpoint after provisioner finishes.
 
 Ordered roughly by dependency. Packages map to repo folders.
 
-### A. Contracts (`contracts/`) — no LLM required
+### A. Contracts (`src/cuttle/contracts/`) — no LLM required
 
 - [ ] `ModelRef`  
 - [ ] `Directive`, `Step`, `AcceptanceCheck`  
@@ -353,21 +353,21 @@ Ordered roughly by dependency. Packages map to repo folders.
 - [ ] `UsageEvent`, run status enums  
 - [ ] JSON Schema / pydantic validation helpers  
 
-### B. Model registry + config (`backends/` + config module)
+### B. Model registry + config (`src/cuttle/backends/` + config module)
 
 - [ ] Load user/project config  
 - [ ] Resolve env overrides  
 - [ ] Factory: `ModelRef` → `BaseChatModel` (frontier + OpenAI-compat local)  
 - [ ] Defaults for brain / hands / escalate  
 
-### C. Eval engine (`evals/`)
+### C. Eval engine (`src/cuttle/evals/`)
 
 - [ ] Command runner (timeout, cwd, capture)  
 - [ ] File exists / content match / regex  
 - [ ] Path allowlist diff check (git or walk)  
 - [ ] Aggregate `EvalReport`  
 
-### D. Orchestrator (`orchestrator/`) — LangGraph
+### D. Orchestrator (`src/cuttle/orchestrator/`) — LangGraph
 
 - [ ] `OrchestratorState`  
 - [ ] Nodes: ensure_hands, plan, validate, approve, dispatch, eval, route, final_eval, succeed/fail  
@@ -375,7 +375,7 @@ Ordered roughly by dependency. Packages map to repo folders.
 - [ ] Checkpointer + `thread_id`  
 - [ ] Usage aggregation + final report object  
 
-### E. Agent runtime adapter (`agents/`)
+### E. Agent runtime adapter (`src/cuttle/agents/`)
 
 - [ ] `AgentRuntime` protocol  
 - [ ] `DeepAgentsRuntime` (bootstrap)  
@@ -384,21 +384,21 @@ Ordered roughly by dependency. Packages map to repo folders.
 - [ ] Prompt builders: goal→brain message; Step→hands message  
 - [ ] Later: `CuttleAgentRuntime` replacing Deep Agents  
 
-### F. Middleware / tool host (`middleware/`, tool host)
+### F. Middleware / tool host (`src/cuttle/middleware/`, tool host)
 
 - [ ] Path scope guard for hands  
 - [ ] Deny mutate tools for brain  
 - [ ] Stuck detector (repeat tool loop)  
 - [ ] Workspace backend wiring  
 
-### G. Local provisioner (`backends/` or `provisioner/`)
+### G. Local provisioner (`src/cuttle/provisioner/`)
 
 - [ ] Hardware detect  
 - [ ] llmfit recommend integration  
 - [ ] Download + deploy + health check  
 - [ ] `cuttle hands install` / `cuttle setup` flows  
 
-### H. CLI product surface (`cli/`, `skills/`)
+### H. CLI product surface (`src/cuttle/cli/`, later skills)
 
 - [ ] `cuttle implement`  
 - [ ] `cuttle doctor` / `cuttle hands`  

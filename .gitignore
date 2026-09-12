@@ -33,3 +33,4 @@ npm-debug.log*
 .runs/
 *.log
 .cache/
+.venv/
