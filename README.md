@@ -25,10 +25,10 @@ cuttle implement "add admin login UI"
 
 ## Stack
 
-- **Python 3.12+**
-- LangGraph (orchestrator) + LangChain (models/tools)
-- Deep Agents optional (`[deepagents]`) as bootstrap `AgentRuntime`
-- Typer CLI entrypoint: `cuttle`
+- **Python 3.12+** engine: LangGraph orchestrator + LangChain models/tools + CuttleAgentRuntime
+- **Rust** interactive TUI (event consumer; no LangGraph in Rust)
+- Versioned engine↔TUI event protocol (shared with plain text CLI)
+- Typer/plain CLI always available (`--plain` / `NO_COLOR`)
 
 ## Setup
 
@@ -36,8 +36,8 @@ cuttle implement "add admin login UI"
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-# optional bootstrap runtime + local helpers:
-# pip install -e ".[dev,deepagents,local]"
+# optional local-runtime helpers:
+# pip install -e ".[dev,local]"
 
 cuttle version
 ```
@@ -48,14 +48,15 @@ Copy `.env.example` to `.env` when you start wiring models.
 
 | Path | Role |
 |---|---|
+| `src/cuttle/cli/` | Python entry, plain text UI, engine event stream |
 | `src/cuttle/orchestrator/` | LangGraph phase machine |
-| `src/cuttle/contracts/` | Directive / step / acceptance schemas |
-| `src/cuttle/agents/` | `AgentRuntime` + Deep Agents adapter |
+| `src/cuttle/contracts/` | Directive / step / acceptance / run-event schemas |
+| `src/cuttle/agents/` | `AgentRuntime` + Cuttle tool-loop implementation |
 | `src/cuttle/middleware/` | Scope guard, stuck detector, telemetry |
 | `src/cuttle/evals/` | Deterministic checks |
 | `src/cuttle/backends/` | Model factories (frontier + local) |
 | `src/cuttle/provisioner/` | llmfit → download → deploy local hands |
-| `src/cuttle/cli/` | `cuttle` entrypoint |
+| `crates/cuttle-tui/` | Rust interactive TUI (render-only) |
 | `docs/` | HLA, architecture, viability, diagrams |
 | `AGENTS.md` | Instructions for all coding harnesses |
 

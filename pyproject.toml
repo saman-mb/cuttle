@@ -28,9 +28,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-deepagents = [
-  "deepagents>=0.2",
-]
 local = [
   "langchain-ollama>=0.2",
   "huggingface-hub>=0.26",

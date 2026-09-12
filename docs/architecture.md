@@ -71,11 +71,11 @@ flowchart TB
   end
 
   subgraph BRAIN["Brain — frontier"]
-    B["Deep Agent · read / search only<br/>emit Directive · no code mutation"]
+    B["Cuttle brain · read / search only<br/>emit Directive · no code mutation"]
   end
 
   subgraph HANDS["Hands pool — local by default"]
-    H["Deep Agent · edit / bash / tools<br/>one Step · scoped paths · fresh context"]
+    H["Cuttle hands · edit / bash / tools<br/>one Step · scoped paths · fresh context"]
   end
 
   subgraph EVAL["Eval engine — deterministic"]
@@ -122,6 +122,8 @@ The brain does not leave a vibes plan. It emits a contract:
   - `acceptance[]` — checkable claims (file exists, command exit 0, content match)  
 - `final_checks[]` — suite-level gates  
 - `escalate_if[]` — when hands must stop and return to the brain  
+
+Orchestrator resolves **pinned** `ModelRef`s (brain / hands / escalate) before invoke. Brain refs may include capability-gated controls — context depth, effort, thinking/budget, sampling — applied only when the provider profile supports them; unsupported knobs fail closed.
 
 Hands never see the full frontier transcript — only the current step plus orchestrator-injected snippets.
 
@@ -193,7 +195,7 @@ flowchart LR
 | Plan → execute contract | Freeform | Engine-dependent | **Directive schema** |
 | Advance criteria | Model decides | Model / engine decides | **Eval gates** |
 | Escalation | Manual / hope | Per-employee config | **Step-scoped ladder** (local → mid-tier → replan) |
-| What we build | Use as-is | Bus over engines | **Own harness + Deep Agents roles** |
+| What we build | Use as-is | Bus over engines | **Own harness** (orchestrator + role tool loops) |
 
 Cuttle is not “another multi-agent swarm.” It is a **cost and reliability control plane** for hybrid cloud+local coding agents.
 
@@ -203,22 +205,24 @@ Cuttle is not “another multi-agent swarm.” It is a **cost and reliability co
 
 ```text
 cuttle/
-  cli/              # cuttle entrypoint (future)
-  orchestrator/     # LangGraph phase machine
-  contracts/        # Directive / Step / Acceptance schemas
-  agents/           # brain.py · hands.py (Deep Agents wrappers)
-  middleware/       # scope guard · stuck detector · telemetry
-  evals/            # deterministic checkers
-  backends/         # model factories
-  skills/           # optional workflows
+  src/cuttle/
+    cli/              # Python entry / plain text / engine events
+    orchestrator/     # LangGraph phase machine
+    contracts/        # Directive / Step / Acceptance / run events
+    agents/           # brain/hands AgentRuntime (Cuttle tool loop)
+    middleware/       # scope guard · stuck detector · telemetry
+    evals/            # deterministic checkers
+    backends/         # model factories
+    provisioner/      # llmfit → deploy
+    skills/           # optional workflows
+  crates/
+    cuttle-tui/       # Rust interactive TUI (event consumer)
   docs/
     architecture.md
     diagrams/
-      cuttle-harness.svg
-      cuttle-vs-today.svg
 ```
 
-Deep Agents (or equivalent) are the **role runtimes**. Cuttle’s IP is the orchestrator, directive contract, evals, and escalation policy.
+**Python** owns the engine (LangGraph + runtime + evals + provisioner). **Rust** owns the interactive TUI only. Wire them with a versioned event protocol — never put orchestration in Rust, and never depend on unofficial Rust LangGraph ports.
 
 ---
 
@@ -234,7 +238,7 @@ Deep Agents (or equivalent) are the **role runtimes**. Cuttle’s IP is the orch
 ## Next implementation slice
 
 1. Pydantic `Directive` / `Step` / `AcceptanceCheck`  
-2. Brain agent: frontier, read-only, structured directive out  
-3. Hands agent: local model, one step in / result out  
-4. Orchestrator graph + pytest-backed eval runner  
-5. CLI: `cuttle implement` + plan preview + cost summary  
+2. Orchestrator graph + pytest-backed eval runner  
+3. `CuttleAgentRuntime`: brain (frontier, read-only, structured directive) + hands (local, one step)  
+4. Cuttle tool host (FS / edit / shell) + scope middleware  
+5. CLI: `cuttle implement` + status + cost summary  

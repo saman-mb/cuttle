@@ -8,8 +8,9 @@ Repository instruction sources (read these first):
 Rules:
 
 - Python 3.12+ project (`src/cuttle/`, see `pyproject.toml`).
-- Orchestrator owns phase control and model binding; do not route via Deep Agents `task`/subagents.
+- Orchestrator owns phase control and model binding; never an LLM or third-party `task`/subagent router.
 - Brain plans (Directive); hands execute steps; deterministic evals gate progress.
-- Deep Agents is bootstrap for AgentRuntime only, not the product.
+- Agent runtime is Cuttle-owned from day one (`create_agent` / LangGraph tool loop). Do not add Deep Agents.
+- Python owns the LangGraph engine; Rust owns the interactive TUI only (event consumer). Do not put orchestration in Rust.
 - Update HLA/docs when changing the control plane.
 - Do not commit unless asked.

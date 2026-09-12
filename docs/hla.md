@@ -7,16 +7,16 @@
 
 ---
 
-## 1. Deep Agents: target or shortcut?
+## 1. Agent runtime: own it from day one
 
 | | Role |
 |---|---|
-| **Target** | Cuttle-owned CLI, orchestrator, contracts/evals, local provisioner, and (eventually) our own agent runtime |
-| **Deep Agents** | Bootstrap implementation of the **Agent Runtime** only |
+| **Target** | Cuttle-owned CLI, orchestrator, contracts/evals, local provisioner, **and** the brain/hands agent tool loop |
+| **Not used** | Deep Agents (or any third-party harness) as the role runtime |
 
-Deep Agents is **not** the long-term dependency. Early on it sits behind an interface. Later we can replace it with LangChain `create_agent` + our middleware, or a fully custom LangGraph tool loop, without rewriting the orchestrator.
+We build the inner “LLM + tools until done” loop ourselves on LangChain `create_agent` and/or a hand-rolled LangGraph model↔tools graph. That keeps harness behaviour, prompt weight, and upgrades under Cuttle’s control — required for peer-class DevEx and for local-hands fit.
 
-**Hard rule:** Deep Agents’ `task` / subagent tool is **never** the system router. Cuttle’s orchestrator decides phases and models.
+**Hard rule:** no `task` / subagent tool as system router. Cuttle’s orchestrator decides phases and models.
 
 ---
 
@@ -31,15 +31,23 @@ Think in four layers. Cuttle uses more than one of them.
 | Piece | Library | Who owns behaviour |
 |---|---|---|
 | Outer run loop (plan/eval/escalate) | **LangGraph** `StateGraph` | **Cuttle** |
-| Inner “LLM + tools until done” loop | Deep Agents → later our agent | Bootstrap vs Cuttle |
+| Inner “LLM + tools until done” loop | **Cuttle** `AgentRuntime` (`create_agent` / tool loop) | Cuttle |
 | Model client | LangChain chat models | Config / adapters |
 | Persistence of orchestrator run | LangGraph checkpointer | Cuttle |
 | Persistence of a single agent turn thread | Agent checkpointer (optional) | Runtime adapter |
 
-So: **two graphs**, not one.
+So: **two graphs**, not one — and **two processes** at the product edge:
 
-1. **Orchestrator graph** — Cuttle, phase machine, no freeform agenting.  
-2. **Role agent graphs** — brain or hands, classic tool-calling agent, one role per invoke.
+1. **Orchestrator graph** — Cuttle, phase machine, no freeform agenting (Python / LangGraph).  
+2. **Role agent graphs** — brain or hands, classic tool-calling agent, one role per invoke (Python).  
+3. **Interactive TUI** — Rust binary; render-only over a versioned event stream from the Python engine.
+
+```text
+cuttle (Rust TUI)  ←── versioned events (NDJSON / JSON-RPC) ──→  cuttle engine (Python)
+   keys, layout, chromatophore pulse                              LangGraph + runtime + evals + provisioner
+```
+
+Official LangGraph supports **Python** and **JS/TS** only. Cuttle uses **Python** for the engine. Do not reimplement LangGraph in Rust.
 
 ---
 
@@ -96,7 +104,10 @@ OrchestratorState
   last_step_result: StepResult | None
   last_eval: EvalReport | None
 
-  status: "running" | "awaiting_approval" | "succeeded" | "failed"
+  status: "running" | "awaiting_approval" | "succeeded" | "failed" | "cancelled"
+  # Phase/display lexicon also uses: idle | plan | hands | eval | escalate
+  # cancelled = user Reject (HITL); failed = system/budget/eval exhaustion — both non-resumable
+
   failure_reason: str | None
 
   usage: list[UsageEvent]            # per-role tokens / $ / latency
@@ -214,7 +225,7 @@ This section is the “what do we call in the stack?” map.
 
 ### 5.2 Model binding (LangChain)
 
-**Implement with:** `langchain.chat_models.init_chat_model` and/or explicit clients.
+**Implement with:** `langchain.chat_models.init_chat_model` and/or explicit clients, plus provider-specific kwargs where needed.
 
 | Role | Typical binding |
 |---|---|
@@ -224,9 +235,39 @@ This section is the “what do we call in the stack?” map.
 
 Orchestrator resolves `ModelRef` → `BaseChatModel` **before** invoke and passes the instance into the runtime. The role agent must not pick another model mid-run.
 
-### 5.3 Brain / hands runtime interface (Cuttle adapter)
+#### `ModelRef` and generation / reasoning controls
 
-Stable interface so Deep Agents is swappable:
+`ModelRef` is more than a model id. It carries **optional, capability-gated** controls so operators can tune brain (and escalate) quality without hard-coding one provider’s API:
+
+| Control (config name) | Intent | Applied when |
+|---|---|---|
+| `context` / `max_input_tokens` | Context window / depth budget for the role | Provider exposes context or we cap via truncation policy |
+| `effort` | Reasoning / compute effort (e.g. OpenAI-style effort levels) | Capability profile says `effort` supported |
+| `thinking` / `thinking_budget` | Extended thinking / reasoning tokens (e.g. Anthropic thinking) | Capability profile says `thinking` supported |
+| `temperature`, `top_p`, `max_output_tokens` | Standard sampling caps | Nearly universal; still validated against profile |
+| `extra` | Escaped provider kwargs (last resort) | Explicit allowlist / documented only — not a free-for-all dump |
+
+**Compatibility rules (hard):**
+
+1. **Capability profile per provider/model family** (Cuttle-owned table or detector): which knobs exist and how they map to LangChain/client kwargs.  
+2. **Unsupported knobs fail closed at config load or resolve** with British-English copy naming the model and the unsupported field — never silently ignore brain `effort`/`thinking` the user thought was on.  
+3. **Hands local defaults stay thin** — these knobs are first-class for **brain** (and escalate when useful); local hands may ignore or subset them when the local server cannot honour them (documented per backend).  
+4. Factory maps supported knobs → `BaseChatModel` bind/`model_kwargs` / provider APIs; orchestrator still injects the resulting instance unchanged.
+
+Brain config example (illustrative):
+
+```text
+brain:
+  model: anthropic:claude-opus-4-6
+  context: 200000          # or max_input_tokens
+  thinking: true
+  thinking_budget: 10000   # if profile supports budgets
+  # effort: high           # only if that provider profile supports effort
+```
+
+### 5.3 Brain / hands runtime interface
+
+Stable interface so the orchestrator never depends on tool-loop internals:
 
 ```text
 class AgentRuntime(Protocol):
@@ -244,65 +285,61 @@ class AgentRuntime(Protocol):
   ) -> AgentRunResult: ...
 ```
 
-| Adapter | When | Implements `run` via |
+| Implementation | When | Implements `run` via |
 |---|---|---|
-| `DeepAgentsRuntime` | Bootstrap | `create_deep_agent(...).invoke/ainvoke` |
-| `CreateAgentRuntime` | Mid | `langchain.agents.create_agent` |
-| `CuttleAgentRuntime` | End state | Our LangGraph tool loop |
+| `FakeAgentRuntime` | E1 tests / CLI stub | Fixtures only |
+| `CuttleAgentRuntime` | Day one (product) | LangChain `create_agent` and/or hand-rolled LangGraph model↔tools loop + Cuttle tool host |
 
-Orchestrator only depends on `AgentRuntime`.
+Orchestrator only depends on `AgentRuntime`. There is no Deep Agents adapter and no “replace later” runtime epic.
 
-### 5.4 Deep Agents bootstrap wiring (concrete)
+### 5.4 CuttleAgentRuntime wiring (concrete)
 
-For bootstrap, each role is a **separate** `create_deep_agent` graph (or one factory with different kwargs). Orchestrator invokes them like subprocesses (in-process graphs).
+Each role is a **separate** agent graph (or one factory with different kwargs). Orchestrator invokes them like subprocesses (in-process graphs).
 
-**Brain `create_deep_agent` knobs we care about:**
+**Brain**
 
-| Param | Brain setting |
+| Concern | Setting |
 |---|---|
-| `model` | frontier `BaseChatModel` |
-| `system_prompt` | plan-only instructions |
-| `response_format` | `Directive` schema |
-| `tools` | none extra, or read-only extras |
-| `permissions` / middleware | deny write/edit/execute mutate |
-| `subagents` | **empty / GP disabled** — no `task` router |
-| `backend` | workspace backend rooted at repo |
-| `checkpointer` | optional ephemeral per plan call |
+| `model` | frontier `BaseChatModel` (orchestrator-injected) |
+| `system_prompt` | plan-only instructions (thin; no rented harness base prompt) |
+| structured output | `Directive` schema |
+| tools | read/search only (Cuttle tool host allowlist) |
+| middleware | deny write/edit/mutating execute |
+| subagents / `task` | **absent** — not part of the runtime |
+| workspace | repo-rooted backend |
+| checkpointer | optional ephemeral per plan call |
 
-**Hands `create_deep_agent` knobs:**
+**Hands**
 
-| Param | Hands setting |
+| Concern | Setting |
 |---|---|
-| `model` | local or escalate `BaseChatModel` |
-| `system_prompt` | execute-this-step instructions |
-| `response_format` | `StepResult` (or parse final message) |
-| `tools` | coding tools as needed |
-| `middleware` | path scope guard (Cuttle middleware) |
-| `subagents` | disabled |
-| `backend` | same workspace (or worktree) |
-| `interrupt_on` | optional for destructive tools |
+| `model` | local or escalate `BaseChatModel` (orchestrator-injected) |
+| `system_prompt` | execute-this-step instructions (sized for local models) |
+| structured output | `StepResult` (or parse final message) |
+| tools | coding tools from Cuttle tool host as needed |
+| middleware | path scope guard, stuck detector; optional interrupt on destructive tools |
+| subagents / `task` | **absent** |
+| workspace | same workspace (or worktree) |
+| thread | **fresh** `thread_id` per attempt |
 
-**Important Deep Agents details for implementers:**
+**Implementer rules:**
 
-- Built-in tools include FS + `execute` + `task`. For Cuttle, **strip/disable `task`** (no general-purpose subagent; don’t pass subagents).  
-- Use `permissions` / tool-exclusion / custom middleware so brain cannot mutate.  
-- Prefer `response_format` for Directive so orchestrator doesn’t regex JSON out of prose.  
-- Pass an explicit `model=` every time; never rely on library defaults.
+- Pass an explicit `model=` every time; never rely on library defaults.  
+- Prefer structured output for `Directive` so orchestrator doesn’t regex JSON out of prose.  
+- Own FS / edit / shell tools under the tool host — peer-class reliability is a first-party bar, not a dependency hope.  
+- Keep prompts thin enough for local 14–32B hands; do not inherit a cloud-agent “fat harness” prompt stack.
 
-### 5.5 End-state agent runtime (what replaces Deep Agents)
-
-Same outer orchestrator. Inner runtime becomes our graph:
+### 5.5 Inner agent loop shape
 
 ```text
-agent_loop (LangGraph)
+agent_loop (LangGraph / create_agent)
   node: model (BaseChatModel.bind_tools)
-  node: tools (ToolNode)
+  node: tools (ToolNode / Cuttle tool host)
   edges: model → tools → model until no tool calls / structured end
-  middleware: summarization, scope guard, stuck detector
+  middleware: summarization (when we choose), scope guard, stuck detector
 ```
 
-Built from LangChain `create_agent` or hand-rolled `StateGraph` + `ToolNode`.  
-Filesystem/shell can stay as LangChain tools we own under `backends/` / tool host.
+Filesystem/shell live as LangChain tools we own under `backends/` / tool host.
 
 ### 5.6 Tools and MCP
 
@@ -347,17 +384,19 @@ Ordered roughly by dependency. Packages map to repo folders.
 
 ### A. Contracts (`src/cuttle/contracts/`) — no LLM required
 
-- [ ] `ModelRef`  
+- [ ] `ModelRef` (id, endpoint, role extras + capability-gated controls: context, effort, thinking, sampling)  
 - [ ] `Directive`, `Step`, `AcceptanceCheck`  
 - [ ] `StepResult`, `EvalReport`, `FailurePacket`  
-- [ ] `UsageEvent`, run status enums  
+- [ ] `UsageEvent`, run status enums (`idle|plan|hands|eval|escalate|awaiting_approval|succeeded|failed|cancelled`)  
 - [ ] JSON Schema / pydantic validation helpers  
 
 ### B. Model registry + config (`src/cuttle/backends/` + config module)
 
 - [ ] Load user/project config  
 - [ ] Resolve env overrides  
-- [ ] Factory: `ModelRef` → `BaseChatModel` (frontier + OpenAI-compat local)  
+- [ ] Capability profiles (which knobs each provider/model family supports)  
+- [ ] Factory: `ModelRef` → `BaseChatModel` (frontier + OpenAI-compat local), mapping supported knobs only  
+- [ ] Fail closed on unsupported brain controls (no silent drop)  
 - [ ] Defaults for brain / hands / escalate  
 
 ### C. Eval engine (`src/cuttle/evals/`)
@@ -375,14 +414,14 @@ Ordered roughly by dependency. Packages map to repo folders.
 - [ ] Checkpointer + `thread_id`  
 - [ ] Usage aggregation + final report object  
 
-### E. Agent runtime adapter (`src/cuttle/agents/`)
+### E. Agent runtime (`src/cuttle/agents/`)
 
 - [ ] `AgentRuntime` protocol  
-- [ ] `DeepAgentsRuntime` (bootstrap)  
-  - [ ] Brain factory (read-only, `response_format=Directive`, no subagents)  
-  - [ ] Hands factory (scoped tools, no subagents)  
-- [ ] Prompt builders: goal→brain message; Step→hands message  
-- [ ] Later: `CuttleAgentRuntime` replacing Deep Agents  
+- [ ] `CuttleAgentRuntime` (day one)  
+  - [ ] Brain factory (read-only tool allowlist, structured `Directive`, no subagents/`task`)  
+  - [ ] Hands factory (scoped tools, fresh thread per attempt, no subagents/`task`)  
+- [ ] Cuttle tool host: FS / edit / shell (peer-class reliability bar)  
+- [ ] Prompt builders: goal→brain message; Step→hands message (thin for local models)  
 
 ### F. Middleware / tool host (`src/cuttle/middleware/`, tool host)
 
@@ -390,6 +429,7 @@ Ordered roughly by dependency. Packages map to repo folders.
 - [ ] Deny mutate tools for brain  
 - [ ] Stuck detector (repeat tool loop)  
 - [ ] Workspace backend wiring  
+- [ ] Streaming + usage event hooks suitable for CLI/TUI  
 
 ### G. Local provisioner (`src/cuttle/provisioner/`)
 
@@ -398,43 +438,47 @@ Ordered roughly by dependency. Packages map to repo folders.
 - [ ] Download + deploy + health check  
 - [ ] `cuttle hands install` / `cuttle setup` flows  
 
-### H. CLI product surface (`src/cuttle/cli/`, later skills)
+### H. CLI / engine surface (`src/cuttle/cli/`)
 
-- [ ] `cuttle implement`  
-- [ ] `cuttle doctor` / `cuttle hands`  
+- [ ] Thin Python entry: `cuttle implement`, `doctor`, plain/`--plain` text UI  
+- [ ] Versioned run-event stream (status lexicon, step progress, usage) for TUI consumers  
 - [ ] Sessions / resume  
 - [ ] Skills + slash commands  
 - [ ] Permissions UX  
 - [ ] MCP config loading  
 
-### I. End-state replacement
+### I. Rust TUI (`crates/cuttle-tui/` or equivalent)
 
-- [ ] Native agent tool loop feature-parity with what we used from Deep Agents  
-- [ ] Drop Deep Agents dependency from default installs (optional extra OK)  
+- [ ] Native interactive TUI crate (fast startup / rendering)  
+- [ ] Spawns or attaches to Python engine; speaks the same event protocol as E2 text CLI  
+- [ ] Render-only: no phase/routing/model decisions in Rust  
+- [ ] Coastal chrome + simple chromatophore shape/pulse; `--plain` / `NO_COLOR` / reduced-motion  
+- [ ] Must not load marketing mascot assets  
 
 ---
 
-## 7. Bootstrap vs end state (same loop)
+## 7. Same loop from day one
 
 ```text
-Component              Bootstrap                         End state
-─────────────────────────────────────────────────────────────────────
-Orchestrator loop      Cuttle LangGraph                  same
-Contracts / evals      Cuttle                            same
-Model factory          LangChain init_chat_model         same
-Brain/hands invoke     DeepAgentsRuntime                 CuttleAgentRuntime
-Tools / FS / shell     Deep Agents middleware + backend  Cuttle tool host
-Provisioner            stub or manual model              full llmfit+HF path
-CLI                    thin                              full product surface
+Component              Day one / end state
+──────────────────────────────────────────
+Orchestrator loop      Cuttle LangGraph
+Contracts / evals      Cuttle
+Model factory          LangChain init_chat_model
+Brain/hands invoke     CuttleAgentRuntime
+Tools / FS / shell     Cuttle tool host
+Provisioner            stub → full llmfit+HF path
+CLI                    thin → full product surface
 ```
 
-The orchestration **loop shape does not change** when we leave Deep Agents. Only the body of `AgentRuntime.run` changes.
+There is no “swap Deep Agents later” phase. Harness quality is raised inside `CuttleAgentRuntime` and the tool host.
 
 ---
 
 ## 8. Non-goals for the orchestrator
 
-- Letting brain call hands via Deep Agents `task`  
+- Letting brain call hands via any `task` / subagent router  
+- Depending on Deep Agents (or similar rented harnesses) for the role loop  
 - LLM-as-judge as the primary step gate  
 - One mega-agent graph that both plans and edits under a single model  
 - Rebuilding provisioner inside LangChain (keep it a normal service module)  
@@ -446,10 +490,11 @@ The orchestration **loop shape does not change** when we leave Deep Agents. Only
 | Question | Answer |
 |---|---|
 | Where is the Cuttle brain/hands logic enforced? | **Orchestrator LangGraph** (phases + model binding + evals) |
-| Where does LangChain sit? | Chat models, tools, middleware, optional `create_agent` |
-| Where does Deep Agents sit? | **Bootstrap** behind `AgentRuntime`, not the outer loop |
-| What do we implement first? | Contracts → evals → orchestrator → DeepAgentsRuntime → thin CLI |
-| What is the end state? | Same orchestrator; our own agent runtime; full CLI; llmfit provisioner |
+| Where does LangChain sit? | Chat models, tools, middleware, `create_agent` / tool loop |
+| Where does Deep Agents sit? | **Nowhere** — not a dependency |
+| What do we implement first? | Contracts → evals → orchestrator → CuttleAgentRuntime → thin CLI + event stream |
+| Where does the interactive TUI live? | **Rust** crate — event consumer only; Python owns LangGraph |
+| What is the bar for the harness? | Peer-class DevEx without cloning Claude Code’s full surface |
 
 ## Diagrams
 

@@ -39,7 +39,7 @@ LLM picks model (maybe)  →   Config pins brain vs hands
 Hope                     →   Retry / escalate rules
 ```
 
-LangGraph (or any orchestrator) is not magic. **Determinism comes from not trusting the frontier model as the control plane.** Deep Agents / Claude Code–class runtimes remain good *role engines*; Cuttle’s IP is the loop around them.
+LangGraph (or any orchestrator) is not magic. **Determinism comes from not trusting the frontier model as the control plane.** Role agents (brain/hands) are tool loops Cuttle owns; Cuttle’s IP is still the outer loop — contracts, evals, and escalation — around those roles.
 
 That makes brain→hands work more reliably than “configure Claude Code carefully,” for the same reason systems like Penny, local-first harnesses, and Aider’s architect/editor split work: **the router is not an LLM**.
 
@@ -69,7 +69,7 @@ Build a thin harness that:
 - Hands = local or mid-tier cheap model, **pinned**
 - Directive schema + deterministic evals + escalate ladder
 
-This is clearly worth it if the goal is lower subscription/API spend and repeatable runs. LangGraph is a valid substrate; Deep Agents (or similar) as brain/hands runtimes is fine.
+This is clearly worth it if the goal is lower subscription/API spend and repeatable runs. LangGraph is a valid substrate; Cuttle-owned brain/hands tool loops are the role engines.
 
 ### Medium viability — product / paid CLI
 
@@ -118,7 +118,7 @@ LangGraph is not the insight. **Deterministic orchestration is.** LangGraph is a
 
 ## Viability test (not belief)
 
-1. **Do not rebuild Claude Code.** Own orchestrator + directive + hands + evals. Reuse filesystem/shell/agent loops from Deep Agents or similar.
+1. **Do not rebuild Claude Code.** Own orchestrator + directive + hands + evals + the inner agent tool loop. Peer-class DevEx (streaming, tools, permissions, resume) without cloning their full product surface.
 2. **Measure** on a fixed task set: all-frontier baseline vs Cuttle (local/cheap hands) — resolve rate, cost, wall time, escalate %.
 3. **Kill criterion:** escalate rate stays very high (e.g. ≳ 40%) or quality gap is large → local hands are not ready. Fallback product is still useful: frontier plan + mid-tier cloud hands (weaker story, still deterministic).
 4. **Ship criterion:** comparable quality at a clear cost cut (target ballpark: ~≤ 50% of all-frontier on a meaningful set) with **zero** “please use Haiku” prompts.
