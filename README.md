@@ -51,6 +51,7 @@ Early scaffold. Directories are placeholders; no runtime code yet.
 ## Docs
 
 - [Architecture](docs/architecture.md) — harness design, comparison to today’s tools, diagrams
+- [Viability](docs/viability.md) — harness vs prompts in Claude Code / Codex; product bet scorecard
 
 ## License
 
