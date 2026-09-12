@@ -25,10 +25,11 @@ cuttle implement "add admin login UI"
 
 ## Stack
 
-- **Python 3.12+** engine: LangGraph orchestrator + LangChain models/tools + CuttleAgentRuntime
+- **Python 3.12+** engine: LangGraph orchestrator + LangChain models/tools + CuttleAgentRuntime + provider hub
 - **Rust** interactive TUI (event consumer; no LangGraph in Rust)
 - Versioned engine↔TUI event protocol (shared with plain text CLI)
 - Typer/plain CLI always available (`--plain` / `NO_COLOR`)
+- **Providers:** connect many vendors (`cuttle auth`), browse available models (`cuttle models`), assign to brain/hands/escalate
 
 ## Setup
 
@@ -42,7 +43,7 @@ pip install -e ".[dev]"
 cuttle version
 ```
 
-Copy `.env.example` to `.env` when you start wiring models.
+Copy `.env.example` to `.env` when you start wiring models — or use `cuttle auth login` once the provider hub lands (preferred for multi-vendor keys).
 
 ## Layout
 
@@ -54,7 +55,9 @@ Copy `.env.example` to `.env` when you start wiring models.
 | `src/cuttle/agents/` | `AgentRuntime` + Cuttle tool-loop implementation |
 | `src/cuttle/middleware/` | Scope guard, stuck detector, telemetry |
 | `src/cuttle/evals/` | Deterministic checks |
-| `src/cuttle/backends/` | Model factories (frontier + local) |
+| `src/cuttle/backends/` | Model factory + adapters (native / openai_compat / …) |
+| `src/cuttle/providers/` | Vendor registry + model catalog |
+| `src/cuttle/auth/` | Credential store (`auth login` / list / logout) |
 | `src/cuttle/provisioner/` | llmfit → download → deploy local hands |
 | `crates/cuttle-tui/` | Rust interactive TUI (render-only) |
 | `docs/` | HLA, architecture, viability, diagrams |

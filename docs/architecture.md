@@ -123,9 +123,19 @@ The brain does not leave a vibes plan. It emits a contract:
 - `final_checks[]` — suite-level gates  
 - `escalate_if[]` — when hands must stop and return to the brain  
 
-Orchestrator resolves **pinned** `ModelRef`s (brain / hands / escalate) before invoke. Brain refs may include capability-gated controls — context depth, effort, thinking/budget, sampling — applied only when the provider profile supports them; unsupported knobs fail closed.
+Orchestrator resolves **pinned** `ModelRef`s (brain / hands / escalate) before invoke. Those refs come from the **provider hub**: auth → catalog → role assign. Brain refs may include capability-gated controls — context depth, effort, thinking/budget, sampling — applied only when the provider profile supports them; unsupported knobs fail closed.
 
 Hands never see the full frontier transcript — only the current step plus orchestrator-injected snippets.
+
+### Provider hub (OpenCode-class connect UX)
+
+Operators should not hand-edit opaque model strings as the only path:
+
+1. `cuttle auth login` / `/connect` — pick a vendor, paste key (or OAuth where supported)
+2. `cuttle models` / `/models` — see everything authenticated + local/compat
+3. Assign catalog picks to **brain / hands / escalate** slots
+
+Implementation stays modular: provider registry + auth store + catalog + capability matrix + `backends/` factory. Adding a cloud vendor is a registry/adapter row, not an orchestrator change. OpenAI-compatible “Other” covers the long tail; local provisioner registers hands into the same catalog.
 
 ---
 
@@ -212,7 +222,9 @@ cuttle/
     agents/           # brain/hands AgentRuntime (Cuttle tool loop)
     middleware/       # scope guard · stuck detector · telemetry
     evals/            # deterministic checkers
-    backends/         # model factories
+    backends/         # model factories + adapters
+    providers/        # vendor registry + catalog
+    auth/             # credential store
     provisioner/      # llmfit → deploy
     skills/           # optional workflows
   crates/

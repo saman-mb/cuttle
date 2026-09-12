@@ -11,6 +11,7 @@ Rules:
 - Orchestrator owns phase control and model binding; never an LLM or third-party `task`/subagent router.
 - Brain plans (Directive); hands execute steps; deterministic evals gate progress.
 - Agent runtime is Cuttle-owned from day one (`create_agent` / LangGraph tool loop). Do not add Deep Agents.
-- Python owns the LangGraph engine; Rust owns the interactive TUI only (event consumer). Do not put orchestration in Rust.
+- Provider hub: registry → auth → catalog → role ModelRefs → factory. Secrets in auth store, not committed config. Add vendors via adapters, not orchestrator forks.
+- Python owns the LangGraph engine + provider hub; Rust owns the interactive TUI only (event consumer). Do not put orchestration in Rust.
 - Update HLA/docs when changing the control plane.
 - Do not commit unless asked.

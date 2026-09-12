@@ -223,17 +223,50 @@ This section is the “what do we call in the stack?” map.
 
 **We do not use:** a single `create_deep_agent` as the outer graph.
 
-### 5.2 Model binding (LangChain)
+### 5.2 Provider hub + model binding
+
+Operator UX (OpenCode-class): **connect many vendors → auth once → models become available → assign to roles.** The orchestrator still owns binding at run time; agents never pick providers mid-run.
+
+```text
+cuttle auth login /connect  →  credential store (~/.config/cuttle/auth.json)
+cuttle models               →  catalog of models you can use right now
+assign to role              →  brain | hands | escalate  (ModelRef in config)
+factory                     →  BaseChatModel (LangChain)
+```
+
+#### Layers (modular — add a vendor without touching LangGraph)
+
+| Layer | Owns | Does not own |
+|---|---|---|
+| **Provider registry** | Vendor id, display name, auth kind (api_key / oauth / env / none), adapter kind, default base URL, catalog source | Orchestrator phases |
+| **Auth store** | Credentials only (`cuttle auth login \| list \| logout`); never committed | Model quality knobs |
+| **Catalog** | Models available after auth (+ optional live `/v1/models`); whitelist/blacklist | Role pinning |
+| **Capability profiles** | Which knobs each provider/model family supports | Secrets |
+| **Factory (`backends/`)** | `ModelRef` → `BaseChatModel` | UI chrome |
+
+**Adapters (not per-vendor if/else in the orchestrator):**
+
+| Adapter kind | Use for |
+|---|---|
+| `native` | First-class LangChain integrations (Anthropic, OpenAI, Google, …) where quality knobs matter |
+| `openai_compat` | Long-tail cloud + local gateways (OpenRouter-style, Ollama, llama.cpp, LM Studio, custom `/v1`) |
+| `bedrock` / `azure` / … | Thin dedicated adapters when OpenAI-compat is insufficient |
+
+**Day-one vendor bar:** Anthropic + OpenAI native; OpenAI-compatible catch-all (“Other”); local Ollama/compat for hands. Expand the registry with catalog rows + adapter mapping — do not hardcode 75 vendors into the phase graph.
+
+**Secrets vs config:** project/user config stores `ModelRef`s and role preferences only. API keys live in the auth store or env (`CUTTLE_*` / provider env). Never require keys in committed files.
+
+#### Model binding (LangChain)
 
 **Implement with:** `langchain.chat_models.init_chat_model` and/or explicit clients, plus provider-specific kwargs where needed.
 
 | Role | Typical binding |
 |---|---|
-| Brain | `init_chat_model("anthropic:…")` or OpenAI/etc. from config |
-| Hands local | `ChatOllama` / OpenAI-compatible client → `http://127.0.0.1:11434` (or llama.cpp/MLX server) |
-| Hands escalate | cheaper cloud model string |
+| Brain | Catalog pick → `init_chat_model("anthropic:…")` / OpenAI / etc. |
+| Hands local | `ChatOllama` / OpenAI-compatible → local base URL (or provisioner-registered ref) |
+| Hands escalate | Cheaper cloud model from the same catalog |
 
-Orchestrator resolves `ModelRef` → `BaseChatModel` **before** invoke and passes the instance into the runtime. The role agent must not pick another model mid-run.
+Orchestrator resolves `ModelRef` → `BaseChatModel` **before** invoke and passes the instance into the runtime. The role agent must not pick another model mid-run. Session `/models` (E5) only changes **role slots** between runs or at approved config points — never mid-step hands dispatch.
 
 #### `ModelRef` and generation / reasoning controls
 
@@ -263,6 +296,19 @@ brain:
   thinking: true
   thinking_budget: 10000   # if profile supports budgets
   # effort: high           # only if that provider profile supports effort
+```
+
+Custom OpenAI-compatible provider (illustrative):
+
+```text
+providers:
+  my-gateway:
+    adapter: openai_compat
+    name: My Gateway
+    base_url: https://api.example.com/v1
+    # api key via: cuttle auth login my-gateway
+    models:
+      coder-large: { name: Coder Large }
 ```
 
 ### 5.3 Brain / hands runtime interface
@@ -390,14 +436,18 @@ Ordered roughly by dependency. Packages map to repo folders.
 - [ ] `UsageEvent`, run status enums (`idle|plan|hands|eval|escalate|awaiting_approval|succeeded|failed|cancelled`)  
 - [ ] JSON Schema / pydantic validation helpers  
 
-### B. Model registry + config (`src/cuttle/backends/` + config module)
+### B. Provider hub + model factory (`src/cuttle/backends/`, `providers/`, `auth/`, config)
 
-- [ ] Load user/project config  
+- [ ] Provider registry entries (id, auth kind, adapter kind, base URL, catalog source)  
+- [ ] Auth store + `cuttle auth login | list | logout` (credentials out of repo config)  
+- [ ] Catalog: models available after auth (+ optional live list); whitelist/blacklist  
+- [ ] Custom OpenAI-compatible provider (“Other”) via config block  
+- [ ] Load user/project config (role `ModelRef`s only — no secrets)  
 - [ ] Resolve env overrides  
-- [ ] Capability profiles (which knobs each provider/model family supports)  
-- [ ] Factory: `ModelRef` → `BaseChatModel` (frontier + OpenAI-compat local), mapping supported knobs only  
+- [ ] Capability profiles (which knobs each provider/model family supports) — **one** checked-in matrix  
+- [ ] Factory: `ModelRef` → `BaseChatModel` (native + openai_compat + local), mapping supported knobs only  
 - [ ] Fail closed on unsupported brain controls (no silent drop)  
-- [ ] Defaults for brain / hands / escalate  
+- [ ] Defaults for brain / hands / escalate; `cuttle models` lists assignable refs  
 
 ### C. Eval engine (`src/cuttle/evals/`)
 
@@ -440,10 +490,10 @@ Ordered roughly by dependency. Packages map to repo folders.
 
 ### H. CLI / engine surface (`src/cuttle/cli/`)
 
-- [ ] Thin Python entry: `cuttle implement`, `doctor`, plain/`--plain` text UI  
+- [ ] Thin Python entry: `cuttle implement`, `doctor`, `auth`, `models`, plain/`--plain` text UI  
 - [ ] Versioned run-event stream (status lexicon, step progress, usage) for TUI consumers  
 - [ ] Sessions / resume  
-- [ ] Skills + slash commands  
+- [ ] Skills + slash commands (incl. `/connect`, `/models` mapping to real verbs)  
 - [ ] Permissions UX  
 - [ ] MCP config loading  
 
@@ -452,6 +502,7 @@ Ordered roughly by dependency. Packages map to repo folders.
 - [ ] Native interactive TUI crate (fast startup / rendering)  
 - [ ] Spawns or attaches to Python engine; speaks the same event protocol as E2 text CLI  
 - [ ] Render-only: no phase/routing/model decisions in Rust  
+- [ ] `/connect` + `/models` UX calling Python auth/catalog verbs (role assign only)  
 - [ ] Coastal chrome + simple chromatophore shape/pulse; `--plain` / `NO_COLOR` / reduced-motion  
 - [ ] Must not load marketing mascot assets  
 

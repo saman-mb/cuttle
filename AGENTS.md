@@ -27,8 +27,9 @@ Do not invent a different control plane than the HLA.
 3. **Own the agent runtime from day one.** Brain/hands run on Cuttle’s tool loop (`create_agent` / LangGraph model↔tools), not Deep Agents. No third-party `task` / subagent router — ever.
 4. **Two graphs:** outer Cuttle LangGraph orchestrator; inner brain/hands agent loops (also Cuttle-owned).
 5. **Local provisioner (llmfit → download → deploy) is first-class.** Do not assume the user already set up Ollama by hand as the only path.
-6. **Default concurrency:** one hands writer. Optional read-only scouts later. No swarm-as-default.
-7. **Process split:** Python owns the engine (LangGraph + runtime + evals + provisioner). The interactive TUI is a **Rust** binary that renders a versioned event stream from the engine — it must not own phases, model binding, or evals.
+6. **Provider hub is first-class.** Many vendors via a registry + adapters; easy auth (`cuttle auth` / `/connect`); catalog makes models available; operators assign to brain/hands/escalate. Secrets stay in the auth store — not in committed config. Orchestrator still pins roles; agents do not self-select providers mid-run.
+7. **Default concurrency:** one hands writer. Optional read-only scouts later. No swarm-as-default.
+8. **Process split:** Python owns the engine (LangGraph + runtime + evals + provisioner + provider hub). The interactive TUI is a **Rust** binary that renders a versioned event stream from the engine — it must not own phases, model binding, or evals.
 
 ---
 
@@ -38,8 +39,9 @@ Do not invent a different control plane than the HLA.
 - **TUI language: Rust** — fast interactive terminal UI; consumes engine events only (no LangGraph in Rust; no official Rust LangGraph).
 - **Packaging:** `src/cuttle/` for the Python engine; Rust TUI crate under e.g. `crates/cuttle-tui/` (or equivalent). Engine install: `pip install -e ".[dev]"`.
 - **Orchestrator:** LangGraph `StateGraph` (Python only for this product).
-- **Models / tools:** LangChain (`init_chat_model`, tools, middleware).
+- **Models / tools:** LangChain (`init_chat_model`, tools, middleware) behind a modular provider hub (registry → auth → catalog → factory).
 - **Agent runtime:** Cuttle-owned (`AgentRuntime` → `create_agent` and/or hand-rolled LangGraph tool loop). Do not add Deep Agents as a dependency.
+- **Providers:** native adapters for first-class vendors; `openai_compat` catch-all for long-tail + local; optional thin adapters (Bedrock/Azure) when needed. Do not hardcode vendor lists into the orchestrator.
 - **Model controls:** `ModelRef` may set context depth, effort, thinking/budget, and sampling — applied only when the provider/model capability profile supports them; unsupported knobs fail closed (no silent ignore), especially for brain.
 - **Wire protocol:** versioned NDJSON / JSON-RPC-style events (status lexicon, usage, step progress) shared by text CLI and Rust TUI.
 - **Schemas:** Pydantic v2 in `contracts` (or `src/cuttle/contracts`).
@@ -61,7 +63,9 @@ src/cuttle/
   agents/           # AgentRuntime + Cuttle tool-loop implementation
   middleware/       # scope guard, stuck detector
   evals/            # deterministic checks
-  backends/         # model factory, local runtimes
+  backends/         # model factory, adapters
+  providers/        # vendor registry + catalog
+  auth/             # credential store (login/list/logout)
   provisioner/      # llmfit + HF/download + deploy
 crates/
   cuttle-tui/       # Rust interactive TUI (event consumer only)
