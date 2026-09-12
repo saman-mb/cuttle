@@ -50,6 +50,7 @@ Early scaffold. Directories are placeholders; no runtime code yet.
 
 ## Docs
 
+- [HLA (end state)](docs/hla.md) — target architecture; Deep Agents = bootstrap only
 - [Architecture](docs/architecture.md) — harness design, comparison to today’s tools, diagrams
 - [Viability](docs/viability.md) — harness vs prompts in Claude Code / Codex; product bet scorecard
 
