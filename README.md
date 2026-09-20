@@ -1,7 +1,7 @@
 # Cuttle
 
 <p align="center">
-  <img src="docs/assets/logo.gif" width="220" alt="Cuttle — animated pixel-art cuttlefish with cycling chromatophore colours (30s seamless loop)" />
+  <img src="docs/assets/logo.gif" width="200" alt="Cuttle — animated pixel-art cuttlefish with cycling chromatophore colours (30s seamless loop)" />
 </p>
 
 <p align="center">
