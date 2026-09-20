@@ -1,0 +1,18 @@
+{
+  "title": "cuttle — implement (illustrative)",
+  "width": 760,
+  "beats": [
+    {"type": "command", "text": "cuttle implement \"fix failing auth test\""},
+    {"type": "blank"},
+    {"type": "line", "text": "mode: local · hands: qwen2.5-coder:32b @ ollama · $0.00", "color": "cyan"},
+    {"type": "stage", "label": "PLAN", "detail": "brain emits Directive (pinned ModelRef)"},
+    {"type": "stage", "label": "HANDS", "detail": "step 1/3 · scoped edit + shell"},
+    {"type": "stage", "label": "EVAL", "detail": "pytest · exit 0"},
+    {"type": "stage", "label": "HANDS", "detail": "step 2/3 · apply_edit"},
+    {"type": "stage", "label": "EVAL", "detail": "content match · pass"},
+    {"type": "blank"},
+    {"type": "line", "text": "receipt  brain $0.00 · hands $0.00 · escalate —", "color": "white"},
+    {"type": "line", "text": "privacy  nothing left the machine (local mode)", "color": "green"},
+    {"type": "done", "text": "succeeded · router was code, not hope"}
+  ]
+}
