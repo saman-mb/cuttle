@@ -1,0 +1,43 @@
+{
+  "scale": 14,
+  "palette": {
+    ".": "#00000000",
+    "D": "#042f2e",
+    "B": "#0f766e",
+    "C": "#0d9488",
+    "T": "#14b8a6",
+    "F": "#5eead4",
+    "h": "#99f6e4",
+    "E": "#ecfdf5",
+    "P": "#0f172a",
+    "A": "#134e4a",
+    "o": "#f97316",
+    "O": "#fb923c",
+    "p": "#fb7185",
+    "g": "#fbbf24",
+    "s": "#38bdf8",
+    "v": "#a78bfa",
+    "r": "#e11d48",
+    "m": "#f472b6"
+  },
+  "grid": [
+    "....h.h.FF.F.FFFh.h.FF.F.F.......................",
+    "...FDFDFDDDDDDDDDDDFDDFDTDDDDDDDDTF..............",
+    "..FDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDF.............",
+    ".FDDTTTToOOggggggggggggggggOOoFFFFDDF............",
+    "DDTTTTTToOOgggggggggggggggOOooFFFFTTDD...........",
+    "DDTTTTToOOggggggggggggggggOOoTTTTTTTTDD..........",
+    "DDTTTTToOOggggggggggEEEEEEEooTTTTTTTTTTDD........",
+    "DDTTTToOOOgggggggggEEPEEPEEETTTTTTTTTTTDD.o.A.o..",
+    "DDTTTToOOggggggggggEEPPPPPPETTTTTTTTTTTTDDAAAoAAA",
+    "DDCTTooOOgggggggggggEEEEEEETTTTTTTTTTTTTDAAAoAAAo",
+    "DDCTToOOggggggggggggggggOOoTTTTTTTTTTTTTDA.oAAA.A",
+    "DDTTooOOgggggggggggggggOOoTTTTTTTTTTTTTDD.oAAAoA.",
+    ".DDToOOggggggggggggggggOOoCCCCTTTTTTTTDD..A.A.A..",
+    "..DDoOOgggggggggggggggOOooCCCCTTTTTTTDD..........",
+    "...FDDggggggggggggggggOOoCCCCTTTTTTDDF...........",
+    "....FDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDF...........",
+    ".....FDDDDDDDDDDDDDFDTDDDDDDDDTFFFFFF............",
+    "......h.F.FF.F.Fhhh.F.FF.F.F....................."
+  ]
+}

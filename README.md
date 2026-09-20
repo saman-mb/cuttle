@@ -1,7 +1,7 @@
 # Cuttle
 
 <p align="center">
-  <img src="docs/assets/logo.png" width="200" alt="Cuttle — pixel-art cuttlefish badge with chromatophore colour pops on a coastal dusk circle" />
+  <img src="docs/assets/logo.gif" width="220" alt="Cuttle — animated pixel-art cuttlefish with cycling chromatophore colours (30s seamless loop)" />
 </p>
 
 <p align="center">

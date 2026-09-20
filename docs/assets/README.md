@@ -1,8 +1,8 @@
 # Docs assets
 
-- `logo.png` / `logo-240.png` — pixel-art circular cuttlefish mark (from `specs/logo.pixelart.json`), nearest-neighbour upscale.
-- `demo.gif` — illustrative README / site hero (from `specs/readme-demo.termgif.json`).
-- Regenerate logo: `python3 ~/.cursor/skills/shipmates-pixelart/pixelart.py --spec specs/logo.pixelart.json --out logo.png`
-- Regenerate demo: `python3 ~/.cursor/skills/shipmates-termgif/termgif.py --spec specs/readme-demo.termgif.json --out demo.gif`
-
-Demo frames are **illustrative** until the golden-suite ledger ships real numbers.
+- `logo.gif` — **README hero**: animated cuttlefish, ~30s seamless chromatophore colour loop (no circular badge / letterbox frame). Spec: `specs/logo-animated.pixelart.json`.
+- `logo.png` — static poster (final/mid frame) for reduced-motion / OG fallback.
+- `logo-readme.png` — 200px-wide nearest-neighbour still for places that dislike huge GIFs.
+- `demo.gif` — illustrative implement run (termgif).
+- Regenerate logo:  
+  `python3 ~/.cursor/skills/shipmates-pixelart/pixelart.py --spec specs/logo-animated.pixelart.json --out logo.gif --poster logo.png`
