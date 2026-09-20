@@ -1,6 +1,10 @@
 # Cuttle
 
 <p align="center">
+  <img src="docs/assets/logo.png" width="200" alt="Cuttle — pixel-art cuttlefish badge with chromatophore colour pops on a coastal dusk circle" />
+</p>
+
+<p align="center">
   <b>Coding agent harness: frontier plans, local implements. The router is code.</b><br/>
   Pin <b>brain</b> / <b>hands</b> / <b>escalate</b> in the orchestrator — so expensive models plan and <b>your</b> local (or cheap) models execute, gated by deterministic evals.
 </p>
