@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Generate tight-crop animated cuttlefish logo (chromatophore cycle).
+"""Generate tight-crop animated cuttlefish logo (continuous chromatophore cycle).
 
 Sepia side-view: mantle + undulating fin + W-pupil + short arm fan.
-Body silhouette stable; colour is the motion (~30s seamless loop).
+Body silhouette stable; colour is the motion — dense frames, ~30s seamless loop.
+No long still holds: every frame advances phase so colour keeps scrolling.
 """
 from __future__ import annotations
 
@@ -38,11 +39,7 @@ PALETTE = {
 }
 
 # Hand-drawn Sepia, facing RIGHT. # = outline (→ D). B = animating mantle.
-# Eye: explicit W-pupil (two lobes). Arms: short fingered fan, not a stump.
-# All rows length 50 before crop.
 RAW = [
-#    0         1         2         3         4         5
-#    01234567890123456789012345678901234567890123456789
     "..................................................",
     "....F.F.FF.F.FFFF.F.FF.F.F........................",
     "...################################...............",
@@ -63,8 +60,15 @@ RAW = [
     ".....################################.............",
     "......F.F.FF.F.FFFF.F.FF.F.F......................",
     "..................................................",
-
 ]
+
+# Six display moods, crossfaded continuously across the loop (no hard cuts / holds).
+# Each mood returns a palette char for a body cell.
+MOODS = ("teal", "gold", "leopard", "cyan", "violet", "riot")
+
+# Dense continuous motion: 150 frames × 200ms = 30.0s
+N_FRAMES = 150
+FRAME_MS = 200
 
 
 def normalize(rows: list[str]) -> list[list[str]]:
@@ -72,10 +76,7 @@ def normalize(rows: list[str]) -> list[list[str]]:
     for row in rows:
         cells = []
         for ch in row:
-            if ch == "#":
-                cells.append(OUT)
-            else:
-                cells.append(ch)
+            cells.append(OUT if ch == "#" else ch)
         grid.append(cells)
     widths = {len(r) for r in grid}
     if len(widths) != 1:
@@ -83,7 +84,7 @@ def normalize(rows: list[str]) -> list[list[str]]:
     return grid
 
 
-def crop_tight(grid: list[list[str]], pad: int = 1) -> list[list[str]]:
+def crop_tight(grid: list[list[str]], pad: int = 0) -> list[list[str]]:
     h, w = len(grid), len(grid[0])
     min_r, max_r, min_c, max_c = h, -1, w, -1
     for r in range(h):
@@ -103,7 +104,6 @@ def body_cells(grid: list[list[str]]) -> list[tuple[int, int]]:
 
 
 def outline_fin_cells(grid: list[list[str]]) -> list[tuple[int, int]]:
-    """Dark outline pixels that border empty space on dorsal/ventral edges."""
     h, w = len(grid), len(grid[0])
     cells = []
     for r, row in enumerate(grid):
@@ -124,140 +124,144 @@ TEAL = ["B", "C", "T", "F", "h"]
 POP = ["o", "O", "p", "g", "s", "v", "r", "m"]
 
 
-def chroma(r: int, c: int, h: int, w: int, phase: float, beat: int) -> str:
+def mood_weights(phase: float) -> list[float]:
+    """Soft overlap of 6 moods across [0,1); always at least two active."""
+    n = len(MOODS)
+    # each mood peaks every 1/n of the loop; width ~0.28 so neighbours blend
+    width = 0.28
+    weights = []
+    for i in range(n):
+        center = (i + 0.5) / n
+        d = abs(phase - center)
+        d = min(d, 1.0 - d)  # circular
+        w = max(0.0, 1.0 - d / width)
+        weights.append(w * w)  # ease
+    s = sum(weights) or 1.0
+    return [w / s for w in weights]
+
+
+def sample_mood(mood: str, r: int, c: int, h: int, w: int, phase: float) -> str:
     x = c / max(w - 1, 1)
     y = r / max(h - 1, 1)
-    dorsal = 1.0 - y
-    base_i = int((0.2 + 0.6 * dorsal + 0.12 * math.sin(x * math.pi)) * (len(TEAL) - 1))
-    ch = TEAL[max(0, min(len(TEAL) - 1, base_i))]
+    # scrolling phase so colour always migrates left→right (and wraps)
+    scroll = phase * 3.0  # ~3 full body scrolls per loop
 
-    wave = math.sin(2 * math.pi * (x * 1.7 - phase) + y * 2.0)
-    pulse = math.sin(2 * math.pi * (phase * 2 + x * 0.7))
-    spots = math.sin(c * 0.9 + phase * 12) * math.cos(r * 1.1 - phase * 9)
-
-    # Seed a few permanent-ish accent micro-spots so even calm frames pop
-    seed = (math.sin(c * 2.3 + r * 1.7) * math.cos(c * 0.4 - r)) 
-
-    if beat in (0, 1, 14):
-        if seed > 0.78 and beat == 0:
-            ch = "g" if (c + r) % 2 else "o"
-        elif seed > 0.72 and beat == 1:
-            ch = "s" if c % 3 else "p"
-        elif wave > 0.72:
+    if mood == "teal":
+        dorsal = 1.0 - y
+        base_i = int((0.15 + 0.7 * dorsal + 0.15 * math.sin(x * math.pi + scroll * 2)) * (len(TEAL) - 1))
+        ch = TEAL[max(0, min(len(TEAL) - 1, base_i))]
+        wave = math.sin(2 * math.pi * (x * 2.0 - scroll) + y * 2.2)
+        spots = math.sin(c * 0.95 + scroll * 14) * math.cos(r * 1.15 - scroll * 11)
+        if wave > 0.55:
             ch = "F"
-        elif spots > 0.8:
+        elif spots > 0.72:
             ch = "h"
-        if beat == 14 and wave > 0.6:
-            ch = "T"
+        elif wave < -0.55:
+            ch = "B"
         return ch
 
-    if beat in (2, 3):
-        crest = math.sin(2 * math.pi * (x - phase) * 1.15 + y * 1.2)
-        if crest > 0.4:
-            ch = "g"
-        elif crest > 0.1:
-            ch = "O"
-        elif crest > -0.1:
-            ch = "o"
-        elif wave > 0.45:
-            ch = "T"
-        return ch
+    if mood == "gold":
+        crest = math.sin(2 * math.pi * (x - scroll) * 1.35 + y * 1.4)
+        if crest > 0.35:
+            return "g"
+        if crest > 0.05:
+            return "O"
+        if crest > -0.2:
+            return "o"
+        return "T" if math.sin(2 * math.pi * (x * 1.5 - scroll) + y) > 0 else "C"
 
-    if beat in (4, 5):
-        cx, cy = 0.40, 0.50
-        dist = math.hypot(x - cx, (y - cy) * 1.25)
-        ring = abs(dist - (0.12 + 0.38 * ((phase * 2) % 1.0)))
-        if ring < 0.07:
-            ch = "o"
-        elif ring < 0.13:
-            ch = "O"
-        elif pulse > 0.55:
-            ch = "T"
-        return ch
+    if mood == "leopard":
+        sx = math.sin(c * 0.68 + scroll * 11) * math.cos(r * 0.82 - scroll * 8)
+        # migrate spots by offsetting sample coords with phase
+        sx2 = math.sin((c + scroll * 40) * 0.55) * math.cos((r - scroll * 28) * 0.7)
+        v = 0.55 * sx + 0.45 * sx2
+        if v > 0.55:
+            return "p" if (c + r) % 2 else "m"
+        if v > 0.28:
+            return "r"
+        if v > 0.08:
+            return "T"
+        return "B"
 
-    if beat in (6, 7):
-        # leopard: discrete roundish spots
-        sx = math.sin(c * 0.62 + phase * 9) * math.cos(r * 0.78 - phase * 7)
-        if sx > 0.58:
-            ch = "p" if (c + r + beat) % 2 else "m"
-        elif sx > 0.32:
-            ch = "r"
-        elif sx > 0.12:
-            ch = "T"
-        return ch
-
-    if beat in (8, 9):
-        band_y = 0.22 + 0.55 * ((phase * 1.2 + x * 0.35) % 1.0)
+    if mood == "cyan":
+        band_y = 0.18 + 0.64 * ((scroll * 0.85 + x * 0.4) % 1.0)
         band = abs(y - band_y)
-        if band < 0.08:
-            ch = "s"
-        elif band < 0.15:
-            ch = "F"
-        elif wave > 0.5:
-            ch = "T"
-        return ch
+        wave = math.sin(2 * math.pi * (x * 1.8 - scroll) + y * 1.5)
+        if band < 0.07:
+            return "s"
+        if band < 0.14:
+            return "F"
+        if wave > 0.4:
+            return "T"
+        return "C" if y < 0.55 else "B"
 
-    if beat in (10, 11):
-        flash = math.sin(2 * math.pi * phase * 3 + x * 5)
-        if flash > 0.5 and spots > -0.1:
-            ch = "v"
-        elif flash > 0.15:
-            ch = "s" if (r + c) % 2 == 0 else "F"
-        else:
-            ch = "B" if y > 0.62 else "C"
-        return ch
+    if mood == "violet":
+        flash = math.sin(2 * math.pi * scroll * 2.2 + x * 5.5 + y * 1.2)
+        spots = math.sin(c * 1.1 - scroll * 16) * math.cos(r * 0.9 + scroll * 10)
+        if flash > 0.45 and spots > -0.15:
+            return "v"
+        if flash > 0.1:
+            return "s" if (r + c + int(scroll * 20)) % 2 == 0 else "F"
+        return "B" if y > 0.6 else "C"
 
-    if beat in (12, 13):
-        # migrating diagonal riot
-        patch = int((c * 0.35 + r * 0.55 + phase * 20)) % len(POP)
-        strength = 0.4 + 0.6 * (0.5 + 0.5 * wave)
-        if strength > 0.5:
-            ch = POP[patch]
-        else:
-            ch = TEAL[(patch + beat) % len(TEAL)]
-        return ch
-
-    return ch
+    # riot
+    patch = int((c * 0.4 + r * 0.5 + scroll * 28)) % len(POP)
+    wave = math.sin(2 * math.pi * (x * 1.6 - scroll) + y * 2.0)
+    strength = 0.35 + 0.65 * (0.5 + 0.5 * wave)
+    if strength > 0.48:
+        return POP[patch]
+    return TEAL[(patch + int(scroll * 10)) % len(TEAL)]
 
 
-def paint(base: list[list[str]], beat: int, n: int) -> list[str]:
+def chroma(r: int, c: int, h: int, w: int, phase: float) -> str:
+    weights = mood_weights(phase)
+    # Pick winner + runner-up; dither by cell so blends look like chromatophore patches
+    ranked = sorted(range(len(MOODS)), key=lambda i: weights[i], reverse=True)
+    i0, i1 = ranked[0], ranked[1]
+    w0, w1 = weights[i0], weights[i1]
+    # cell hash picks primary vs secondary when close
+    cell = (math.sin(c * 3.1 + r * 2.7) * 0.5 + 0.5)
+    if w1 > 0.22 and cell > w0 / (w0 + w1 + 1e-9):
+        mood = MOODS[i1]
+    else:
+        mood = MOODS[i0]
+    return sample_mood(mood, r, c, h, w, phase)
+
+
+def paint(base: list[list[str]], frame: int, n: int) -> list[str]:
     h, w = len(base), len(base[0])
-    phase = beat / n
+    phase = frame / n
     out = [row[:] for row in base]
     for r, c in body_cells(base):
-        out[r][c] = chroma(r, c, h, w, phase, beat)
+        out[r][c] = chroma(r, c, h, w, phase)
 
-    # Fin shimmer — never erase fixed F tips; only shimmer OUTLINE fin cells
     for r, c in outline_fin_cells(base):
-        shimmer = math.sin(2 * math.pi * (c / max(w, 1) * 3.2 - phase) + r * 0.5)
-        if shimmer > 0.45:
+        shimmer = math.sin(2 * math.pi * (c / max(w, 1) * 3.2 - phase * 3) + r * 0.5)
+        if shimmer > 0.4:
             out[r][c] = "F"
-        elif shimmer > 0.05:
+        elif shimmer > 0.0:
             out[r][c] = "T"
         else:
             out[r][c] = OUT
 
-    # Soft arm chromatophore kiss on arm tips (keep A structure, tint a few)
+    # Arm tip colour kiss tracks riot/gold-ish phases
     for r, row in enumerate(base):
         for c, ch in enumerate(row):
             if ch != ARM:
                 continue
-            # outer arm pixels get a warm tip on riot / gold beats
-            if beat in (2, 3, 12, 13) and (r + c + beat) % 4 == 0:
-                out[r][c] = "o" if beat < 4 else "v"
+            tip = math.sin(2 * math.pi * (phase * 2 + (c + r) * 0.15))
+            if tip > 0.55 and (r + c + frame) % 3 == 0:
+                out[r][c] = "o" if phase % 1 < 0.5 else "v"
             else:
                 out[r][c] = ARM
 
-    # Guaranteed: never overwrite eye / pupil (restored)
     for r, row in enumerate(base):
         for c, ch in enumerate(row):
             if ch in (EYE, PUP):
                 out[r][c] = ch
-            # Preserve intentional fin tip F from base
-            if ch == "F" and base[r][c] == "F" and (r <= 2 or r >= h - 3):
-                # allow mild shimmer on tips
-                tip = math.sin(2 * math.pi * (c / w * 4 - phase))
-                out[r][c] = "h" if tip > 0.55 else "F"
+            if ch == "F" and (r <= 2 or r >= h - 3):
+                tip = math.sin(2 * math.pi * (c / max(w, 1) * 4 - phase * 3))
+                out[r][c] = "h" if tip > 0.5 else "F"
 
     return ["".join(row) for row in out]
 
@@ -267,29 +271,28 @@ def main() -> None:
     w = len(tight[0])
     assert all(len(r) == w for r in tight), "ragged after crop"
 
-    n = 15
+    n = N_FRAMES
     frames = [paint(tight, i, n) for i in range(n)]
+
+    # Pick a vivid mid-loop poster (gold-leaning ~frame at mood center 1.5/6)
+    poster_i = int(n * (1.5 / len(MOODS))) % n
 
     spec = {
         "scale": 14,
         "palette": PALETTE,
         "frames": frames,
-        "durations": 2000,
+        "durations": FRAME_MS,
     }
     root = Path(__file__).resolve().parent
     anim = root / "artist1-logo-animated.pixelart.json"
     anim.write_text(json.dumps(spec, indent=2) + "\n")
 
-    static = {"scale": 14, "palette": PALETTE, "grid": frames[3]}  # gold-wave poster (richer)
+    static = {"scale": 14, "palette": PALETTE, "grid": frames[poster_i]}
     (root / "artist1-logo.pixelart.json").write_text(json.dumps(static, indent=2) + "\n")
-    # also publish canonical names for README wiring
-    anim.write_text(json.dumps(spec, indent=2) + "\n")  # noop guard
     (root / "logo-animated.pixelart.json").write_text(json.dumps(spec, indent=2) + "\n")
     (root / "logo.pixelart.json").write_text(json.dumps(static, indent=2) + "\n")
 
-    print(f"size {w}x{len(tight)}  frames={n}  loop={n * 2}s")
-    for row in frames[0]:
-        print(row)
+    print(f"size {w}x{len(tight)}  frames={n}  ms={FRAME_MS}  loop={n * FRAME_MS / 1000:.1f}s  poster={poster_i}")
 
 
 if __name__ == "__main__":
