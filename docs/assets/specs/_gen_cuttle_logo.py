@@ -1,298 +1,426 @@
 #!/usr/bin/env python3
-"""Generate tight-crop animated cuttlefish logo (continuous chromatophore cycle).
+"""Generate the Cuttle mascot: pixel-art cuttlefish poster + 30 s chromatophore loop.
 
-Sepia side-view: mantle + undulating fin + W-pupil + short arm fan.
-Body silhouette stable; colour is the motion — dense frames, ~30s seamless loop.
-No long still holds: every frame advances phase so colour keeps scrolling.
+Run this, then render the specs with the shipmates pixelart tool — see
+`docs/assets/README.md` for the exact commands.
+
+Built to the art direction:
+  * value structure first — a fixed 5-step teal ramp lit from the upper left,
+    so the animal reads in greyscale, not just in hue;
+  * hue rotation is confined to the chromatophore stripes and to the
+    teal -> cyan -> violet -> magenta arc (170-320 deg), never the whole body;
+  * the stripe layout never moves or re-randomises; a brightness wave travels
+    head -> tail through it;
+  * fins undulate on a short sine with a phase offset along the mantle;
+  * the eye blinks twice per loop, off the beat.
 """
 from __future__ import annotations
 
+import colorsys
 import json
 import math
+import sys
 from pathlib import Path
 
-DOT = "."
-OUT = "D"
-EYE = "E"
-PUP = "P"
-ARM = "A"
+W, H = 96, 54
 
-PALETTE = {
-    ".": "#00000000",
-    "D": "#042f2e",
-    "B": "#0f766e",
-    "C": "#0d9488",
-    "T": "#14b8a6",
-    "F": "#5eead4",
-    "h": "#99f6e4",
-    "E": "#ecfdf5",
-    "P": "#0f172a",
-    "A": "#134e4a",
-    "o": "#f97316",
-    "O": "#fb923c",
-    "p": "#fb7185",
-    "g": "#fbbf24",
-    "s": "#38bdf8",
-    "v": "#a78bfa",
-    "r": "#e11d48",
-    "m": "#f472b6",
-}
+# ---------------------------------------------------------------- materials --
+(EMPTY, INK, RIM, B0, B1, B2, B3, B4, FIN0, FIN1,
+ ARM0, ARM1, ARM2, SUCK, SCLERA, PUPIL, SPEC, ST0, ST1, ST2) = range(20)
 
-# Hand-drawn Sepia, facing RIGHT. # = outline (→ D). B = animating mantle.
-RAW = [
-    "..................................................",
-    "....F.F.FF.F.FFFF.F.FF.F.F........................",
-    "...################################...............",
-    "..##################################..............",
-    ".###BBBBBBBBBBBBBBBBBBBBBBBBBBBBBB###.............",
-    "##BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB##............",
-    "##BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB##...........",
-    "##BBBBBBBBBBBBBBBBBBEEEEEEEBBBBBBBBBBBB##.........",
-    "##BBBBBBBBBBBBBBBBBEEPEEPEEEBBBBBBBBBBB##.A.A.A...",
-    "##BBBBBBBBBBBBBBBBBEEPPPPPPEBBBBBBBBBBBB##AAAAAAA.",
-    "##BBBBBBBBBBBBBBBBBBEEEEEEEBBBBBBBBBBBBB#AAAAAAAA.",
-    "##BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB#A.AAAA.A.",
-    "##BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB##.AAAAAA..",
-    ".##BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB##..A.A.A...",
-    "..##BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB##...........",
-    "...###BBBBBBBBBBBBBBBBBBBBBBBBBBBBB###............",
-    "....##################################............",
-    ".....################################.............",
-    "......F.F.FF.F.FFFF.F.FF.F.F......................",
-    "..................................................",
+BODY_MATS = (B0, B1, B2, B3, B4)
+
+# ---------------------------------------------------------------- geometry ---
+CY = 27.0
+TAIL_X, HEAD_X = 7.0, 56.0     # mantle span
+HEAD_END = 70.0
+EYE_CX, EYE_CY, EYE_RX, EYE_RY = 58.5, 23.0, 6.8, 5.8
+ARM_X, ARM_Y = 62.0, 33.0
+
+PROFILE = [
+    (0.00, 0.6), (0.04, 2.2), (0.10, 4.8), (0.20, 8.2), (0.34, 11.4),
+    (0.50, 13.4), (0.64, 14.2), (0.78, 14.0), (0.90, 12.8), (1.00, 10.6),
 ]
 
-# Six display moods, crossfaded continuously across the loop (no hard cuts / holds).
-# Each mood returns a palette char for a body cell.
-MOODS = ("teal", "gold", "leopard", "cyan", "violet", "riot")
 
-# Dense continuous motion: 150 frames × 200ms = 30.0s
-N_FRAMES = 150
-FRAME_MS = 200
-
-
-def normalize(rows: list[str]) -> list[list[str]]:
-    grid = []
-    for row in rows:
-        cells = []
-        for ch in row:
-            cells.append(OUT if ch == "#" else ch)
-        grid.append(cells)
-    widths = {len(r) for r in grid}
-    if len(widths) != 1:
-        raise SystemExit(f"ragged rows: {widths}")
-    return grid
+def mantle_half(x: float) -> float:
+    if x < TAIL_X or x > HEAD_X:
+        return 0.0
+    t = (x - TAIL_X) / (HEAD_X - TAIL_X)
+    for (t0, h0), (t1, h1) in zip(PROFILE, PROFILE[1:]):
+        if t0 <= t <= t1:
+            k = (t - t0) / (t1 - t0)
+            return h0 + (h1 - h0) * (k * k * (3 - 2 * k))
+    return 0.0
 
 
-def crop_tight(grid: list[list[str]], pad: int = 0) -> list[list[str]]:
-    h, w = len(grid), len(grid[0])
-    min_r, max_r, min_c, max_c = h, -1, w, -1
-    for r in range(h):
-        for c in range(w):
-            if grid[r][c] != DOT:
-                min_r, max_r = min(min_r, r), max(max_r, r)
-                min_c, max_c = min(min_c, c), max(max_c, c)
-    min_r = max(0, min_r - pad)
-    max_r = min(h - 1, max_r + pad)
-    min_c = max(0, min_c - pad)
-    max_c = min(w - 1, max_c + pad)
-    return [row[min_c : max_c + 1] for row in grid[min_r : max_r + 1]]
+def head_half(x: float) -> float:
+    if x < HEAD_X - 4 or x > HEAD_END:
+        return 0.0
+    t = (x - (HEAD_X - 4)) / (HEAD_END - (HEAD_X - 4))
+    return 11.4 * (1 - 0.34 * t * t) * math.cos(t * 0.92) ** 0.5
 
 
-def body_cells(grid: list[list[str]]) -> list[tuple[int, int]]:
-    return [(r, c) for r, row in enumerate(grid) for c, ch in enumerate(row) if ch == "B"]
+def in_bounds(x, y):
+    return 0 <= x < W and 0 <= y < H
 
 
-def outline_fin_cells(grid: list[list[str]]) -> list[tuple[int, int]]:
-    h, w = len(grid), len(grid[0])
-    cells = []
-    for r, row in enumerate(grid):
-        for c, ch in enumerate(row):
-            if ch != OUT:
-                continue
-            if not (r <= 3 or r >= h - 4):
-                continue
-            for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-                rr, cc = r + dr, c + dc
-                if 0 <= rr < h and 0 <= cc < w and grid[rr][cc] == DOT:
-                    cells.append((r, c))
-                    break
+def disc(cx, cy, r):
+    out = set()
+    for x in range(int(cx - r - 1), int(cx + r + 2)):
+        for y in range(int(cy - r - 1), int(cy + r + 2)):
+            if in_bounds(x, y) and (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 <= r * r:
+                out.add((x, y))
+    return out
+
+
+# ------------------------------------------------------------------ shapes ---
+def body_cells():
+    cells = set()
+    for x in range(W):
+        h1, h2 = mantle_half(x + 0.5), head_half(x + 0.5)
+        for y in range(H):
+            dy = (y + 0.5) - CY
+            if (h1 > 0 and abs(dy) <= h1) or (h2 > 0 and abs(dy + 1.6) <= h2):
+                cells.add((x, y))
     return cells
 
 
-TEAL = ["B", "C", "T", "F", "h"]
-POP = ["o", "O", "p", "g", "s", "v", "r", "m"]
+BODY = body_cells()
 
 
-def mood_weights(phase: float) -> list[float]:
-    """Soft overlap of 6 moods across [0,1); always at least two active."""
-    n = len(MOODS)
-    # each mood peaks every 1/n of the loop; width ~0.28 so neighbours blend
-    width = 0.28
-    weights = []
-    for i in range(n):
-        center = (i + 0.5) / n
-        d = abs(phase - center)
-        d = min(d, 1.0 - d)  # circular
-        w = max(0.0, 1.0 - d / width)
-        weights.append(w * w)  # ease
-    s = sum(weights) or 1.0
-    return [w / s for w in weights]
+def fin_cells(phase: float):
+    """Skirt welded to the mantle edge, rippling head -> tail."""
+    cells = set()
+    for x in range(int(TAIL_X), int(HEAD_X) + 2):
+        half = mantle_half(x + 0.5)
+        if half <= 2.0:
+            continue
+        u = (x - TAIL_X) / (HEAD_X - TAIL_X)
+        travel = phase - u * 4.4
+        taper = min(1.0, 3.4 * min(u + 0.06, 1.06 - u))
+        thick = (3.6 + 2.0 * math.sin(travel)) * taper
+        lift_t = 2.6 * math.sin(travel) * taper
+        lift_b = 1.8 * math.sin(travel + 0.7) * taper
+        for k in range(int(round(max(thick, 0.0))) + 1):
+            cells.add((x, int(round(CY - half - k + lift_t))))
+            cells.add((x, int(round(CY + half + k + lift_b))))
+    return {c for c in cells if in_bounds(*c)}
 
 
-def sample_mood(mood: str, r: int, c: int, h: int, w: int, phase: float) -> str:
-    x = c / max(w - 1, 1)
-    y = r / max(h - 1, 1)
-    # scrolling phase so colour always migrates left→right (and wraps)
-    scroll = phase * 3.0  # ~3 full body scrolls per loop
-
-    if mood == "teal":
-        dorsal = 1.0 - y
-        base_i = int((0.15 + 0.7 * dorsal + 0.15 * math.sin(x * math.pi + scroll * 2)) * (len(TEAL) - 1))
-        ch = TEAL[max(0, min(len(TEAL) - 1, base_i))]
-        wave = math.sin(2 * math.pi * (x * 2.0 - scroll) + y * 2.2)
-        spots = math.sin(c * 0.95 + scroll * 14) * math.cos(r * 1.15 - scroll * 11)
-        if wave > 0.55:
-            ch = "F"
-        elif spots > 0.72:
-            ch = "h"
-        elif wave < -0.55:
-            ch = "B"
-        return ch
-
-    if mood == "gold":
-        crest = math.sin(2 * math.pi * (x - scroll) * 1.35 + y * 1.4)
-        if crest > 0.35:
-            return "g"
-        if crest > 0.05:
-            return "O"
-        if crest > -0.2:
-            return "o"
-        return "T" if math.sin(2 * math.pi * (x * 1.5 - scroll) + y) > 0 else "C"
-
-    if mood == "leopard":
-        sx = math.sin(c * 0.68 + scroll * 11) * math.cos(r * 0.82 - scroll * 8)
-        # migrate spots by offsetting sample coords with phase
-        sx2 = math.sin((c + scroll * 40) * 0.55) * math.cos((r - scroll * 28) * 0.7)
-        v = 0.55 * sx + 0.45 * sx2
-        if v > 0.55:
-            return "p" if (c + r) % 2 else "m"
-        if v > 0.28:
-            return "r"
-        if v > 0.08:
-            return "T"
-        return "B"
-
-    if mood == "cyan":
-        band_y = 0.18 + 0.64 * ((scroll * 0.85 + x * 0.4) % 1.0)
-        band = abs(y - band_y)
-        wave = math.sin(2 * math.pi * (x * 1.8 - scroll) + y * 1.5)
-        if band < 0.07:
-            return "s"
-        if band < 0.14:
-            return "F"
-        if wave > 0.4:
-            return "T"
-        return "C" if y < 0.55 else "B"
-
-    if mood == "violet":
-        flash = math.sin(2 * math.pi * scroll * 2.2 + x * 5.5 + y * 1.2)
-        spots = math.sin(c * 1.1 - scroll * 16) * math.cos(r * 0.9 + scroll * 10)
-        if flash > 0.45 and spots > -0.15:
-            return "v"
-        if flash > 0.1:
-            return "s" if (r + c + int(scroll * 20)) % 2 == 0 else "F"
-        return "B" if y > 0.6 else "C"
-
-    # riot
-    patch = int((c * 0.4 + r * 0.5 + scroll * 28)) % len(POP)
-    wave = math.sin(2 * math.pi * (x * 1.6 - scroll) + y * 2.0)
-    strength = 0.35 + 0.65 * (0.5 + 0.5 * wave)
-    if strength > 0.48:
-        return POP[patch]
-    return TEAL[(patch + int(scroll * 10)) % len(TEAL)]
+# (start angle deg, bend deg over the arm, length, root thickness, sway phase)
+# angles measured from horizontal, positive downward; the crown hangs from
+# under the head and curls forward
+ARMS_BACK = [
+    (-26.0, 34.0, 15.0, 2.4, 0.0),
+    (34.0, 44.0, 14.0, 2.4, 2.2),
+]
+ARMS_FRONT = [
+    (-12.0, 40.0, 19.0, 3.2, 0.9),
+    (6.0, 46.0, 21.0, 3.6, 1.8),
+    (22.0, 52.0, 17.0, 3.0, 2.7),
+]
+TENTACLES = [
+    (-6.0, 46.0, 25.0, 0.6),
+    (16.0, 54.0, 27.0, 2.4),
+]
 
 
-def chroma(r: int, c: int, h: int, w: int, phase: float) -> str:
-    weights = mood_weights(phase)
-    # Pick winner + runner-up; dither by cell so blends look like chromatophore patches
-    ranked = sorted(range(len(MOODS)), key=lambda i: weights[i], reverse=True)
-    i0, i1 = ranked[0], ranked[1]
-    w0, w1 = weights[i0], weights[i1]
-    # cell hash picks primary vs secondary when close
-    cell = (math.sin(c * 3.1 + r * 2.7) * 0.5 + 0.5)
-    if w1 > 0.22 and cell > w0 / (w0 + w1 + 1e-9):
-        mood = MOODS[i1]
-    else:
-        mood = MOODS[i0]
-    return sample_mood(mood, r, c, h, w, phase)
+def walk(a0, bend, length, thick, ph, t, club=False, sway_amp=7.0):
+    """Walk a tapering tentacle along a curving heading; returns cells + suckers."""
+    sway = sway_amp * math.sin(2 * math.pi * t * 2.5 + ph)
+    cells, suckers = set(), []
+    steps = int(length * 8)
+    x, y = ARM_X - 4.0, ARM_Y
+    for i in range(steps):
+        u = i / steps
+        ang = math.radians(a0 + bend * (u ** 1.3) + sway * (u ** 2))
+        x += math.cos(ang) * (length / steps)
+        y += math.sin(ang) * (length / steps)
+        r = max(0.8, thick * (1.0 - 0.72 * u))
+        if club and 0.74 < u < 0.95:
+            r = max(r, 2.2)
+        cells |= disc(x, y, r)
+        if 0.22 < u < 0.90 and i % 10 == 0:
+            nx, ny = math.sin(ang), -math.cos(ang)      # arm normal
+            suckers.append((int(round(x + nx * r * 0.6)), int(round(y + ny * r * 0.6))))
+    return cells, suckers
 
 
-def paint(base: list[list[str]], frame: int, n: int) -> list[str]:
-    h, w = len(base), len(base[0])
-    phase = frame / n
-    out = [row[:] for row in base]
-    for r, c in body_cells(base):
-        out[r][c] = chroma(r, c, h, w, phase)
+def arm_path(spec, t):
+    a0, bend, length, thick, ph = spec
+    return walk(a0, bend, length, thick, ph, t)
 
-    for r, c in outline_fin_cells(base):
-        shimmer = math.sin(2 * math.pi * (c / max(w, 1) * 3.2 - phase * 3) + r * 0.5)
-        if shimmer > 0.4:
-            out[r][c] = "F"
-        elif shimmer > 0.0:
-            out[r][c] = "T"
-        else:
-            out[r][c] = OUT
 
-    # Arm tip colour kiss tracks riot/gold-ish phases
-    for r, row in enumerate(base):
-        for c, ch in enumerate(row):
-            if ch != ARM:
-                continue
-            tip = math.sin(2 * math.pi * (phase * 2 + (c + r) * 0.15))
-            if tip > 0.55 and (r + c + frame) % 3 == 0:
-                out[r][c] = "o" if phase % 1 < 0.5 else "v"
+def tentacle_cells(spread, curl, ph, t):
+    sway = 2.2 * math.sin(2 * math.pi * t * 1.6 + ph)
+    cells = set()
+    L = 26.0
+    steps = int(L * 7)
+    for i in range(steps):
+        u = i / steps
+        ease = u ** 1.8
+        x = ARM_X - 3 + u * L * (1.0 - 0.14 * ease)
+        y = ARM_Y + spread * (0.15 + 0.5 * u) + curl * ease + sway * ease
+        cells |= disc(x, y, 2.4 if 0.76 < u < 0.94 else 1.4)
+    return cells
+
+
+EYE = {
+    (x, y)
+    for x in range(W) for y in range(H)
+    if ((x + 0.5 - EYE_CX) / EYE_RX) ** 2 + ((y + 0.5 - EYE_CY) / EYE_RY) ** 2 <= 1.0
+}
+
+# W-shaped cuttlefish pupil, drawn relative to the eye centre (offset forward)
+PUPIL_OFFSETS = [
+    # a fat W: outer uprights, inner uprights, and the centre peak
+    (-4, -1), (-4, 0), (-4, 1), (-3, 0), (-3, 1), (-3, 2),
+    (-2, 1), (-2, 2), (-1, 0), (-1, 1),
+    (0, -1), (0, 0), (0, 1),
+    (1, 0), (1, 1), (2, 1), (2, 2),
+    (3, 0), (3, 1), (3, 2), (4, -1), (4, 0), (4, 1),
+]
+
+# fixed chromatophore layout: (centre along the mantle 0..1, half-width in px)
+# (centre px from the tail, half-width px) — irregular on purpose, so it
+# reads as chromatophore banding rather than a barcode
+BANDS = [(6, 1.5), (13, 1.0), (18, 2.0), (26, 1.0), (31, 1.5), (39, 2.0), (45, 1.0)]
+SPECKS = [(0.20, -0.62), (0.33, 0.48), (0.45, -0.30), (0.57, 0.64),
+          (0.68, -0.52), (0.78, 0.30), (0.88, -0.44), (0.30, 0.20)]
+
+
+def stamp(grid, cells, mat, ink=True):
+    if ink:
+        for x, y in cells:
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)):
+                n = (x + dx, y + dy)
+                if in_bounds(*n) and n not in cells:
+                    grid[n[1]][n[0]] = INK
+    for x, y in cells:
+        grid[y][x] = mat
+
+
+def shade_body(grid):
+    """Light from the upper left: five value steps plus a one-pixel rim."""
+    for x in range(W):
+        half = max(mantle_half(x + 0.5), head_half(x + 0.5), 1.0)
+        col = [y for y in range(H) if grid[y][x] in BODY_MATS]
+        if not col:
+            continue
+        top = min(col)
+        for y in col:
+            rel = ((y + 0.5) - CY) / half
+            if y <= top:
+                grid[y][x] = RIM
+            elif rel < -0.62:
+                grid[y][x] = B4
+            elif rel < -0.22:
+                grid[y][x] = B3
+            elif rel < 0.26:
+                grid[y][x] = B2
+            elif rel < 0.62:
+                grid[y][x] = B1
             else:
-                out[r][c] = ARM
-
-    for r, row in enumerate(base):
-        for c, ch in enumerate(row):
-            if ch in (EYE, PUP):
-                out[r][c] = ch
-            if ch == "F" and (r <= 2 or r >= h - 3):
-                tip = math.sin(2 * math.pi * (c / max(w, 1) * 4 - phase * 3))
-                out[r][c] = "h" if tip > 0.5 else "F"
-
-    return ["".join(row) for row in out]
+                grid[y][x] = B0
 
 
-def main() -> None:
-    tight = crop_tight(normalize(RAW), pad=0)
-    w = len(tight[0])
-    assert all(len(r) == w for r in tight), "ragged after crop"
+def stripe_level(u: float, wave_phase: float) -> int:
+    """Brightness of the chromatophore at mantle position u, 0..2."""
+    v = math.sin(wave_phase - u * 4.2)
+    return 2 if v > 0.45 else (1 if v > -0.35 else 0)
 
-    n = N_FRAMES
-    frames = [paint(tight, i, n) for i in range(n)]
 
-    # Pick a vivid mid-loop poster (gold-leaning ~frame at mood center 1.5/6)
-    poster_i = int(n * (1.5 / len(MOODS))) % n
+def add_chromatophores(grid, wave_phase: float):
+    span = HEAD_X - TAIL_X
+    for x in range(W):
+        half = mantle_half(x + 0.5)
+        if half <= 3.0:
+            continue
+        u = (x - TAIL_X) / span
+        for cx, hw in BANDS:
+            if abs((x - TAIL_X) - cx) <= hw:
+                lvl = stripe_level(cx / span, wave_phase)
+                for y in range(H):
+                    if grid[y][x] not in BODY_MATS:
+                        continue
+                    rel = ((y + 0.5) - CY) / half
+                    if -0.80 < rel < 0.10:
+                        grid[y][x] = (ST0, ST1, ST2)[lvl]
+    for cu, rel in SPECKS:
+        x = int(TAIL_X + cu * span)
+        half = mantle_half(x + 0.5)
+        y = int(CY + rel * half)
+        if in_bounds(x, y) and grid[y][x] in BODY_MATS:
+            grid[y][x] = (ST0, ST1, ST2)[stripe_level(cu, wave_phase)]
 
-    spec = {
-        "scale": 14,
-        "palette": PALETTE,
-        "frames": frames,
-        "durations": FRAME_MS,
+
+def draw_eye(grid, lid: float):
+    cols: dict[int, list[int]] = {}
+    for x, y in EYE:
+        cols.setdefault(x, []).append(y)
+
+    if lid >= 0.9:
+        # shut: the eye disappears into the head, leaving a curved lash line
+        for x, y in EYE:
+            grid[y][x] = B3 if y < CY - 3 else B2
+        xs = sorted(cols)
+        for i, x in enumerate(xs):
+            k = (i / max(len(xs) - 1, 1)) * 2 - 1        # -1..1 across the eye
+            y = int(round(EYE_CY + 1 + 1.6 * (1 - k * k)))
+            if (x, y) in EYE:
+                grid[y][x] = INK
+        return
+
+    stamp(grid, EYE, SCLERA)
+    for x, ys in cols.items():
+        ys.sort()
+        cut = ys[0] + int(round(lid * len(ys)))
+        for y in ys:
+            if y < cut:
+                grid[y][x] = B3 if y < CY - 3 else B2
+        if lid > 0.05 and cut - 1 in ys:
+            grid[cut - 1][x] = INK
+    if lid < 0.85:
+        for dx, dy in PUPIL_OFFSETS:
+            x, y = int(EYE_CX + dx) + 1, int(EYE_CY + dy) + 1
+            if (x, y) in EYE and grid[y][x] == SCLERA:
+                grid[y][x] = PUPIL
+        for dx, dy in ((-2, -3), (-1, -3), (-2, -2)):
+            x, y = int(EYE_CX + dx), int(EYE_CY + dy)
+            if (x, y) in EYE:
+                grid[y][x] = SPEC
+
+
+def render_grid(t: float, lid: float):
+    grid = [[EMPTY] * W for _ in range(H)]
+    fin_phase = 2 * math.pi * t * 12.5          # ~12 frames per ripple
+    # depth order: back tentacles, back arms, fin, body+head, front arms, eye
+    for a0, bend, length, ph in TENTACLES:
+        cells, _ = walk(a0, bend, length, 1.5, ph, t, club=True, sway_amp=9.0)
+        stamp(grid, cells, ARM0)
+    for spec in ARMS_BACK:
+        cells, _ = arm_path(spec, t)
+        stamp(grid, cells, ARM0)
+    stamp(grid, fin_cells(fin_phase), FIN0)
+    stamp(grid, BODY, B2)
+    shade_body(grid)
+    add_chromatophores(grid, 2 * math.pi * t * 6.0)
+    for i, spec in enumerate(ARMS_FRONT):
+        cells, suckers = arm_path(spec, t)
+        stamp(grid, cells, (ARM1, ARM2, ARM1)[i])
+        for sx, sy in suckers:
+            if in_bounds(sx, sy) and (sx, sy) in cells:
+                grid[sy][sx] = SUCK
+    draw_eye(grid, lid)
+    # fin highlight: brighten the outer edge of the skirt
+    for x in range(W):
+        fins = [y for y in range(H) if grid[y][x] == FIN0]
+        if fins:
+            grid[min(fins)][x] = FIN1
+    return grid
+
+
+# ---------------------------------------------------------------- palette ---
+INK_HEX = "#042f2e"
+FIXED = {
+    ".": "#00000000",
+    "#": INK_HEX,
+    "R": "#99f6e4",   # rim light
+    "0": "#134e4a",   # belly
+    "1": "#0f766e",
+    "2": "#0d9488",
+    "3": "#14b8a6",
+    "4": "#5eead4",   # lit back
+    "f": "#2dd4bf",   # fin
+    "F": "#99f6e4",   # fin edge
+    "m": "#0b5450",   # arms: shadowed, mid, lit — inside the body ramp
+    "n": "#0f766e",
+    "o": "#149c92",
+    "~": "#99f6e4",   # suckers
+    "E": "#ecfdf5",   # sclera
+    "P": INK_HEX,     # pupil
+    "S": "#ffffff",   # specular
+}
+
+STOPS = 20                        # hue stops around the restricted arc
+HUE_FROM, HUE_TO = 170.0, 320.0   # teal -> cyan -> violet -> magenta
+ST_CHARS = ("abcdeghijklpqrstvwxy", "ABCDGHIJKLMNOQTUVWXY", "uz56789!$%&()*+,-/:;")
+
+
+def hexcol(h_deg, s, v):
+    r, g, b = colorsys.hsv_to_rgb((h_deg % 360) / 360.0, s, v)
+    return "#%02x%02x%02x" % (int(r * 255), int(g * 255), int(b * 255))
+
+
+def build_palette():
+    pal = dict(FIXED)
+    pool = "".join(ST_CHARS)
+    clash = set(pool) & set(FIXED) or (len(set(pool)) != len(pool))
+    if clash:
+        raise SystemExit(f"palette character clash: {clash}")
+    for i in range(STOPS):
+        # ping-pong the arc so the loop returns home without crossing the greens
+        k = i / STOPS * 2
+        k = k if k <= 1 else 2 - k
+        hue = HUE_FROM + (HUE_TO - HUE_FROM) * k
+        pal[ST_CHARS[0][i]] = hexcol(hue, 0.78, 0.36)   # stripe, dark phase
+        pal[ST_CHARS[1][i]] = hexcol(hue, 0.70, 0.62)   # stripe, mid
+        pal[ST_CHARS[2][i]] = hexcol(hue, 0.52, 0.92)   # stripe, lit
+    return pal
+
+
+def to_chars(grid, t):
+    i = int(t * STOPS) % STOPS
+    m = {
+        EMPTY: ".", INK: "#", RIM: "R", B0: "0", B1: "1", B2: "2", B3: "3", B4: "4",
+        FIN0: "f", FIN1: "F", ARM0: "m", ARM1: "n", ARM2: "o", SUCK: "~",
+        SCLERA: "E", PUPIL: "P", SPEC: "S",
+        ST0: ST_CHARS[0][i], ST1: ST_CHARS[1][i], ST2: ST_CHARS[2][i],
     }
-    root = Path(__file__).resolve().parent
-    anim = root / "artist1-logo-animated.pixelart.json"
-    anim.write_text(json.dumps(spec, indent=2) + "\n")
+    return ["".join(m[c] for c in row) for row in grid]
 
-    static = {"scale": 14, "palette": PALETTE, "grid": frames[poster_i]}
-    (root / "artist1-logo.pixelart.json").write_text(json.dumps(static, indent=2) + "\n")
-    (root / "logo-animated.pixelart.json").write_text(json.dumps(spec, indent=2) + "\n")
-    (root / "logo.pixelart.json").write_text(json.dumps(static, indent=2) + "\n")
 
-    print(f"size {w}x{len(tight)}  frames={n}  ms={FRAME_MS}  loop={n * FRAME_MS / 1000:.1f}s  poster={poster_i}")
+# -------------------------------------------------------------------- loop ---
+N_FRAMES, FRAME_MS = 150, 200
+BLINKS = (30, 96)                  # ~6 s and ~19 s into the loop
+BLINK_SHAPE = (0.62, 1.0, 0.72)    # half, shut, half
+
+
+def lid_at(frame: int) -> float:
+    for start in BLINKS:
+        if start <= frame < start + len(BLINK_SHAPE):
+            return BLINK_SHAPE[frame - start]
+    return 0.0
+
+
+def render(t: float, lid: float = 0.0):
+    return to_chars(render_grid(t, lid), t)
+
+
+def crop(frames):
+    used_r = {r for f in frames for r, row in enumerate(f) if row.strip(".")}
+    used_c = {c for f in frames for row in f for c, ch in enumerate(row) if ch != "."}
+    r0, r1, c0, c1 = min(used_r), max(used_r), min(used_c), max(used_c)
+    return [[row[c0:c1 + 1] for row in f[r0:r1 + 1]] for f in frames]
+
+
+POSTER_FRAME = 45          # mid-loop: violet banding over the teal body
+SCALE = 8
+SPECS = Path(__file__).parent
+
+
+def main():
+    palette = build_palette()
+    frames = crop([render(i / N_FRAMES, lid_at(i)) for i in range(N_FRAMES)])
+    animated = {"scale": SCALE, "palette": palette, "frames": frames,
+                "durations": [FRAME_MS] * N_FRAMES}
+    poster = {"scale": SCALE, "palette": palette, "grid": frames[POSTER_FRAME]}
+    (SPECS / "logo-animated.pixelart.json").write_text(json.dumps(animated))
+    (SPECS / "logo.pixelart.json").write_text(json.dumps(poster))
+    w, h = len(frames[0][0]), len(frames[0])
+    print(f"wrote logo-animated.pixelart.json ({N_FRAMES} frames, {w}x{h} logical) "
+          f"and logo.pixelart.json (frame {POSTER_FRAME})")
 
 
 if __name__ == "__main__":
