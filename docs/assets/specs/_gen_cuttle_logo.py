@@ -4,42 +4,53 @@
 Run this, then render the specs with the shipmates pixelart tool — see
 `docs/assets/README.md` for the exact commands.
 
-Built to the art direction:
-  * value structure first — a fixed 5-step teal ramp lit from the upper left,
-    so the animal reads in greyscale, not just in hue;
-  * hue rotation is confined to the chromatophore stripes and to the
-    teal -> cyan -> violet -> magenta arc (170-320 deg), never the whole body;
-  * the stripe layout never moves or re-randomises; a brightness wave travels
-    head -> tail through it;
-  * fins undulate on a short sine with a phase offset along the mantle;
-  * the eye blinks twice per loop, off the beat.
+Technique notes (why the code is shaped like this):
+
+* **Lighting from a surface model, not flat bands.** The mantle is treated as
+  an ellipsoid; every pixel gets an approximate normal, and a single key light
+  from the upper left drives a six-step ramp. That gives a core shadow, a
+  terminator, bounce light and a rim for free — and avoids "pillow shading",
+  where a sprite is merely darkened towards its outline.
+* **Hue-shifted ramps.** Shadows shift cool (towards blue), highlights shift
+  warm and desaturate. Saturation peaks mid-ramp; brightness never reaches
+  pure black or pure white.
+* **Selective outlines.** The outline is dark teal, not black, and it lightens
+  where the key light strikes, so the sprite does not read as a sticker.
+* **Ambient occlusion** where the arms meet the head and the fin meets the
+  mantle; a **cast shadow** along the belly.
+* **Dithering** only at ramp boundaries, one checkerboard row deep.
+* **Anatomy** follows a real cuttlefish: a fin skirt running the whole mantle
+  margin, eight arms (five read at this size) plus two longer club-tipped
+  tentacles, a W-shaped pupil, and the species' own pattern vocabulary —
+  zebra bands, mottle and an eye ring.
+* **Expression.** The mascot is meant to look pleased to see you: arms lifted
+  in a forward wave, a raised brow curve over a large eye, a bright specular
+  catchlight, and a cheek highlight under the eye.
 """
 from __future__ import annotations
 
 import colorsys
 import json
 import math
-import sys
 from pathlib import Path
 
-W, H = 96, 54
+W, H = 104, 60
 
 # ---------------------------------------------------------------- materials --
-(EMPTY, INK, RIM, B0, B1, B2, B3, B4, FIN0, FIN1,
- ARM0, ARM1, ARM2, SUCK, SCLERA, PUPIL, SPEC, ST0, ST1, ST2) = range(20)
-
-BODY_MATS = (B0, B1, B2, B3, B4)
+OUTLINE_DARK, OUTLINE_LIT = "ink0", "ink1"
+SCLERA, PUPIL, SPEC, EYERING = "sclera", "pupil", "spec", "eyering"
 
 # ---------------------------------------------------------------- geometry ---
-CY = 27.0
-TAIL_X, HEAD_X = 7.0, 56.0     # mantle span
-HEAD_END = 70.0
-EYE_CX, EYE_CY, EYE_RX, EYE_RY = 58.5, 23.0, 6.8, 5.8
-ARM_X, ARM_Y = 62.0, 33.0
+CY = 29.0
+TAIL_X, HEAD_X = 8.0, 58.0          # mantle span
+NECK_X, HEAD_END = 58.0, 74.0       # head span
+EYE_CX, EYE_CY, EYE_RX, EYE_RY = 64.0, 25.0, 7.0, 6.2
+ARM_X, ARM_Y = 69.0, 34.5
 
+# mantle half-height along its length: blunt at the head, tapering to the tail
 PROFILE = [
-    (0.00, 0.6), (0.04, 2.2), (0.10, 4.8), (0.20, 8.2), (0.34, 11.4),
-    (0.50, 13.4), (0.64, 14.2), (0.78, 14.0), (0.90, 12.8), (1.00, 10.6),
+    (0.00, 1.2), (0.05, 4.0), (0.12, 7.2), (0.22, 10.2), (0.35, 12.6),
+    (0.50, 14.0), (0.64, 14.6), (0.78, 14.4), (0.90, 13.4), (1.00, 11.6),
 ]
 
 
@@ -55,10 +66,15 @@ def mantle_half(x: float) -> float:
 
 
 def head_half(x: float) -> float:
-    if x < HEAD_X - 4 or x > HEAD_END:
+    """The head is narrower than the mantle, with a slight neck constriction."""
+    if x < NECK_X - 4 or x > HEAD_END:
         return 0.0
-    t = (x - (HEAD_X - 4)) / (HEAD_END - (HEAD_X - 4))
-    return 11.4 * (1 - 0.34 * t * t) * math.cos(t * 0.92) ** 0.5
+    t = (x - (NECK_X - 4)) / (HEAD_END - (NECK_X - 4))
+    return 11.0 * (0.92 + 0.08 * math.cos(t * 3.2)) * math.cos(t * 0.98) ** 0.55
+
+
+def half_at(x: float) -> float:
+    return max(mantle_half(x), head_half(x))
 
 
 def in_bounds(x, y):
@@ -66,22 +82,120 @@ def in_bounds(x, y):
 
 
 def disc(cx, cy, r):
-    out = set()
-    for x in range(int(cx - r - 1), int(cx + r + 2)):
-        for y in range(int(cy - r - 1), int(cy + r + 2)):
-            if in_bounds(x, y) and (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 <= r * r:
-                out.add((x, y))
-    return out
+    return {(x, y)
+            for x in range(int(cx - r - 1), int(cx + r + 2))
+            for y in range(int(cy - r - 1), int(cy + r + 2))
+            if in_bounds(x, y) and (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 <= r * r}
 
 
-# ------------------------------------------------------------------ shapes ---
+# ------------------------------------------------------------------ palette --
+def hexcol(h_deg, s, v):
+    r, g, b = colorsys.hsv_to_rgb((h_deg % 360) / 360.0, max(0.0, min(1.0, s)),
+                                  max(0.0, min(1.0, v)))
+    return "#%02x%02x%02x" % (round(r * 255), round(g * 255), round(b * 255))
+
+
+RAMP_STEPS = 6
+
+
+def ramp(hue_base: float, i: int) -> str:
+    """One step of a hue-shifted ramp: cool in shadow, warm and pale in light.
+
+    Saturation peaks mid-ramp; brightness never bottoms out or blows out.
+    """
+    k = i / (RAMP_STEPS - 1)                       # 0 dark .. 1 light
+    hue = hue_base + 34.0 * (0.5 - k)              # shadows cool, lights warm
+    sat = 0.30 + 0.46 * math.sin(math.pi * (0.18 + 0.72 * k))
+    val = 0.20 + 0.76 * (k ** 0.82)
+    return hexcol(hue, sat, val)
+
+
+BODY_HUE = 174.0                                   # brand teal
+ACCENT_FROM, ACCENT_TO = 176.0, 320.0              # teal -> violet -> magenta
+STOPS = 20
+
+BODY_CHARS = "012345"
+FIN_CHARS = "fgh@"
+ACCENT_CHARS = [
+    "abcdeijklmnopqrstuvw",     # accent, shadow
+    "ABCDEIJKLMNOPQRSTUVW",     # accent, mid
+    "XYZ6789!$%&()*+,-/:;",     # accent, light
+]
+FIXED_CHARS = {
+    OUTLINE_DARK: "#", OUTLINE_LIT: "=",
+    SCLERA: "e", PUPIL: "p", SPEC: "s", EYERING: "r",
+}
+
+
+def build_palette() -> dict[str, str]:
+    pal = {".": "#00000000"}
+    for i, ch in enumerate(BODY_CHARS):
+        pal[ch] = ramp(BODY_HUE, i)
+    # the fin is thinner tissue: paler and slightly bluer than the mantle
+    for i, ch in enumerate(FIN_CHARS):
+        pal[ch] = hexcol(BODY_HUE + 6 - 5 * i, 0.34 - 0.09 * i, 0.74 + 0.11 * i)
+    pal[FIN_CHARS[3]] = hexcol(BODY_HUE + 12, 0.44, 0.46)   # fin, underside
+    for s in range(STOPS):
+        k = s / STOPS * 2
+        k = k if k <= 1 else 2 - k                 # ping-pong, never crosses green
+        hue = ACCENT_FROM + (ACCENT_TO - ACCENT_FROM) * k
+        pal[ACCENT_CHARS[0][s]] = hexcol(hue - 12, 0.62, 0.30)
+        pal[ACCENT_CHARS[1][s]] = hexcol(hue, 0.66, 0.55)
+        pal[ACCENT_CHARS[2][s]] = hexcol(hue + 14, 0.42, 0.88)
+    pal[FIXED_CHARS[OUTLINE_DARK]] = hexcol(BODY_HUE + 16, 0.58, 0.14)
+    pal[FIXED_CHARS[OUTLINE_LIT]] = hexcol(BODY_HUE + 6, 0.52, 0.30)
+    pal[FIXED_CHARS[SCLERA]] = hexcol(BODY_HUE + 20, 0.06, 0.97)
+    pal[FIXED_CHARS[PUPIL]] = hexcol(BODY_HUE + 18, 0.62, 0.12)
+    pal[FIXED_CHARS[SPEC]] = "#ffffff"
+    pal[FIXED_CHARS[EYERING]] = hexcol(BODY_HUE - 10, 0.62, 0.30)
+    seen = set()
+    for ch in pal:
+        if ch in seen:
+            raise SystemExit(f"palette character clash: {ch!r}")
+        seen.add(ch)
+    return pal
+
+
+# ----------------------------------------------------------------- lighting --
+LIGHT = (-0.42, -0.74, 0.52)                       # key light: upper left, front
+_LN = math.sqrt(sum(c * c for c in LIGHT))
+LIGHT = tuple(c / _LN for c in LIGHT)
+
+
+def surface_level(x: int, y: int) -> float:
+    """Approximate lambert term for a pixel on the ellipsoidal body, 0..1."""
+    half = max(half_at(x + 0.5), 1.0)
+    rel = max(-1.0, min(1.0, ((y + 0.5) - CY) / half))
+    nz = math.sqrt(max(0.0, 1.0 - rel * rel))
+    slope = (half_at(x + 1.5) - half_at(x - 0.5)) * 0.5
+    nx = -slope / (abs(slope) + 2.6)
+    ny = rel
+    n = math.sqrt(nx * nx + ny * ny + nz * nz) or 1.0
+    d = (nx * LIGHT[0] + ny * LIGHT[1] + nz * LIGHT[2]) / n
+    bounce = 0.16 * max(0.0, rel) ** 2             # light kicking back off the sea floor
+    return max(0.0, min(1.0, 0.5 + 0.62 * d + bounce))
+
+
+def quantise(level: float, x: int, y: int, steps: int = RAMP_STEPS) -> int:
+    """Ramp index, with a single checkerboard row of dithering at boundaries."""
+    scaled = level * (steps - 1)
+    i = int(scaled)
+    frac = scaled - i
+    if 0.40 < frac < 0.60 and (x + y) % 2 == 0:
+        i += 1
+    elif frac > 0.72:
+        i += 1
+    return max(0, min(steps - 1, i))
+
+
+# ------------------------------------------------------------------- shapes --
 def body_cells():
     cells = set()
     for x in range(W):
         h1, h2 = mantle_half(x + 0.5), head_half(x + 0.5)
         for y in range(H):
             dy = (y + 0.5) - CY
-            if (h1 > 0 and abs(dy) <= h1) or (h2 > 0 and abs(dy + 1.6) <= h2):
+            if (h1 > 0 and abs(dy) <= h1) or (h2 > 0 and abs(dy + 2.0) <= h2):
                 cells.add((x, y))
     return cells
 
@@ -90,48 +204,49 @@ BODY = body_cells()
 
 
 def fin_cells(phase: float):
-    """Skirt welded to the mantle edge, rippling head -> tail."""
-    cells = set()
+    """Skirt along the whole mantle margin, rippling head -> tail."""
+    top, bottom = set(), set()
     for x in range(int(TAIL_X), int(HEAD_X) + 2):
         half = mantle_half(x + 0.5)
-        if half <= 2.0:
+        if half <= 1.6:
             continue
         u = (x - TAIL_X) / (HEAD_X - TAIL_X)
-        travel = phase - u * 4.4
-        taper = min(1.0, 3.4 * min(u + 0.06, 1.06 - u))
-        thick = (3.6 + 2.0 * math.sin(travel)) * taper
-        lift_t = 2.6 * math.sin(travel) * taper
-        lift_b = 1.8 * math.sin(travel + 0.7) * taper
+        travel = phase - u * 5.0
+        taper = min(1.0, 3.6 * min(u + 0.05, 1.05 - u))
+        thick = (2.0 + 1.3 * math.sin(travel)) * taper
+        lift_t = 2.4 * math.sin(travel) * taper
+        lift_b = 1.4 * math.sin(travel + 0.8) * taper
         for k in range(int(round(max(thick, 0.0))) + 1):
-            cells.add((x, int(round(CY - half - k + lift_t))))
-            cells.add((x, int(round(CY + half + k + lift_b))))
-    return {c for c in cells if in_bounds(*c)}
+            top.add((x, int(round(CY - half - k + lift_t))))
+        for k in range(int(round(max(thick * 0.62, 0.0))) + 1):
+            bottom.add((x, int(round(CY + half + k + lift_b))))
+    return ({c for c in top if in_bounds(*c)}, {c for c in bottom if in_bounds(*c)})
 
 
-# (start angle deg, bend deg over the arm, length, root thickness, sway phase)
-# angles measured from horizontal, positive downward; the crown hangs from
-# under the head and curls forward
+# (start angle, bend over the limb, length, root thickness, sway phase).
+# Angles lean upward at the root so the crown reads as a raised, friendly wave
+# rather than a drooping bunch.
 ARMS_BACK = [
-    (-26.0, 34.0, 15.0, 2.4, 0.0),
-    (34.0, 44.0, 14.0, 2.4, 2.2),
+    (-44.0, 40.0, 13.0, 2.4, 0.0),
+    (40.0, 34.0, 12.0, 2.2, 2.2),
 ]
 ARMS_FRONT = [
-    (-12.0, 40.0, 19.0, 3.2, 0.9),
-    (6.0, 46.0, 21.0, 3.6, 1.8),
-    (22.0, 52.0, 17.0, 3.0, 2.7),
+    (-30.0, 58.0, 18.0, 3.2, 0.9),
+    (-4.0, 56.0, 21.0, 3.6, 1.8),
+    (24.0, 48.0, 16.0, 3.0, 2.7),
 ]
 TENTACLES = [
-    (-6.0, 46.0, 25.0, 0.6),
-    (16.0, 54.0, 27.0, 2.4),
+    (-28.0, 46.0, 24.0, 0.6),
+    (8.0, 56.0, 26.0, 2.4),
 ]
 
 
 def walk(a0, bend, length, thick, ph, t, club=False, sway_amp=7.0):
-    """Walk a tapering tentacle along a curving heading; returns cells + suckers."""
+    """Tapering limb along a curving heading; returns its cells and sucker dots."""
     sway = sway_amp * math.sin(2 * math.pi * t * 2.5 + ph)
     cells, suckers = set(), []
+    x, y = ARM_X - 5.0, ARM_Y
     steps = int(length * 8)
-    x, y = ARM_X - 4.0, ARM_Y
     for i in range(steps):
         u = i / steps
         ang = math.radians(a0 + bend * (u ** 1.3) + sway * (u ** 2))
@@ -141,40 +256,16 @@ def walk(a0, bend, length, thick, ph, t, club=False, sway_amp=7.0):
         if club and 0.74 < u < 0.95:
             r = max(r, 2.2)
         cells |= disc(x, y, r)
-        if 0.22 < u < 0.90 and i % 10 == 0:
-            nx, ny = math.sin(ang), -math.cos(ang)      # arm normal
-            suckers.append((int(round(x + nx * r * 0.6)), int(round(y + ny * r * 0.6))))
+        if 0.22 < u < 0.90 and i % 9 == 0:
+            nx, ny = math.sin(ang), -math.cos(ang)
+            suckers.append((int(round(x + nx * r * 0.62)), int(round(y + ny * r * 0.62))))
     return cells, suckers
 
 
-def arm_path(spec, t):
-    a0, bend, length, thick, ph = spec
-    return walk(a0, bend, length, thick, ph, t)
+EYE = {(x, y) for x in range(W) for y in range(H)
+       if ((x + 0.5 - EYE_CX) / EYE_RX) ** 2 + ((y + 0.5 - EYE_CY) / EYE_RY) ** 2 <= 1.0}
 
-
-def tentacle_cells(spread, curl, ph, t):
-    sway = 2.2 * math.sin(2 * math.pi * t * 1.6 + ph)
-    cells = set()
-    L = 26.0
-    steps = int(L * 7)
-    for i in range(steps):
-        u = i / steps
-        ease = u ** 1.8
-        x = ARM_X - 3 + u * L * (1.0 - 0.14 * ease)
-        y = ARM_Y + spread * (0.15 + 0.5 * u) + curl * ease + sway * ease
-        cells |= disc(x, y, 2.4 if 0.76 < u < 0.94 else 1.4)
-    return cells
-
-
-EYE = {
-    (x, y)
-    for x in range(W) for y in range(H)
-    if ((x + 0.5 - EYE_CX) / EYE_RX) ** 2 + ((y + 0.5 - EYE_CY) / EYE_RY) ** 2 <= 1.0
-}
-
-# W-shaped cuttlefish pupil, drawn relative to the eye centre (offset forward)
 PUPIL_OFFSETS = [
-    # a fat W: outer uprights, inner uprights, and the centre peak
     (-4, -1), (-4, 0), (-4, 1), (-3, 0), (-3, 1), (-3, 2),
     (-2, 1), (-2, 2), (-1, 0), (-1, 1),
     (0, -1), (0, 0), (0, 1),
@@ -182,77 +273,160 @@ PUPIL_OFFSETS = [
     (3, 0), (3, 1), (3, 2), (4, -1), (4, 0), (4, 1),
 ]
 
-# fixed chromatophore layout: (centre along the mantle 0..1, half-width in px)
-# (centre px from the tail, half-width px) — irregular on purpose, so it
-# reads as chromatophore banding rather than a barcode
-BANDS = [(6, 1.5), (13, 1.0), (18, 2.0), (26, 1.0), (31, 1.5), (39, 2.0), (45, 1.0)]
-SPECKS = [(0.20, -0.62), (0.33, 0.48), (0.45, -0.30), (0.57, 0.64),
-          (0.68, -0.52), (0.78, 0.30), (0.88, -0.44), (0.30, 0.20)]
+# the species' own pattern vocabulary: zebra bands plus mottle clusters
+ZEBRA = [(8, 1.1), (14, 0.6), (19, 1.4), (26, 0.6), (31, 1.1), (38, 1.4), (44, 0.6)]
+MOTTLE = [(11, -0.30), (17, 0.34), (24, -0.52), (30, 0.20), (36, -0.38),
+          (43, 0.42), (49, -0.24), (26, 0.58)]
 
 
-def stamp(grid, cells, mat, ink=True):
-    if ink:
-        for x, y in cells:
-            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)):
-                n = (x + dx, y + dy)
-                if in_bounds(*n) and n not in cells:
-                    grid[n[1]][n[0]] = INK
+# ------------------------------------------------------------------ drawing --
+def is_body(val) -> bool:
+    return isinstance(val, str) and val in BODY_CHARS
+
+
+def blank():
+    return [[None] * W for _ in range(H)]
+
+
+def put(grid, x, y, val):
+    if in_bounds(x, y):
+        grid[y][x] = val
+
+
+def outline(grid, cells):
+    """Selective outline: dark, but lighter where the key light strikes."""
     for x, y in cells:
-        grid[y][x] = mat
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)):
+            nx, ny = x + dx, y + dy
+            if in_bounds(nx, ny) and grid[ny][nx] is None:
+                lit = dy < 0 or (dx < 0 and dy <= 0)
+                grid[ny][nx] = OUTLINE_LIT if lit else OUTLINE_DARK
 
 
-def shade_body(grid):
-    """Light from the upper left: five value steps plus a one-pixel rim."""
-    for x in range(W):
-        half = max(mantle_half(x + 0.5), head_half(x + 0.5), 1.0)
-        col = [y for y in range(H) if grid[y][x] in BODY_MATS]
-        if not col:
-            continue
-        top = min(col)
-        for y in col:
-            rel = ((y + 0.5) - CY) / half
-            if y <= top:
-                grid[y][x] = RIM
-            elif rel < -0.62:
-                grid[y][x] = B4
-            elif rel < -0.22:
-                grid[y][x] = B3
-            elif rel < 0.26:
-                grid[y][x] = B2
-            elif rel < 0.62:
-                grid[y][x] = B1
-            else:
-                grid[y][x] = B0
+def shade_cells(grid, cells, chars, lighten=0.0, darken=0.0):
+    for x, y in cells:
+        lvl = surface_level(x, y) + lighten - darken
+        grid[y][x] = chars[quantise(lvl, x, y, len(chars))]
 
 
-def stripe_level(u: float, wave_phase: float) -> int:
-    """Brightness of the chromatophore at mantle position u, 0..2."""
-    v = math.sin(wave_phase - u * 4.2)
-    return 2 if v > 0.45 else (1 if v > -0.35 else 0)
+def shade_limb(grid, cells, lighten=0.0):
+    """Limbs are tubes: lit along the top of each one, shading to the underside."""
+    by_col: dict[int, list[int]] = {}
+    for x, y in cells:
+        by_col.setdefault(x, []).append(y)
+    for x, ys in by_col.items():
+        top, bottom = min(ys), max(ys)
+        span = max(bottom - top, 1)
+        for y in ys:
+            k = (y - top) / span                       # 0 top .. 1 underside
+            lvl = 0.80 - 0.42 * k + lighten - 0.004 * (y - ARM_Y)
+            grid[y][x] = BODY_CHARS[quantise(lvl, x, y)]
 
 
-def add_chromatophores(grid, wave_phase: float):
-    span = HEAD_X - TAIL_X
-    for x in range(W):
+def occlude(grid, cells, near, depth=1):
+    """Ambient occlusion: darken body pixels sitting against another form."""
+    for x, y in cells:
+        if any((x + dx, y + dy) in near for dx in (-1, 0, 1) for dy in (-1, 0, 1)):
+            cur = grid[y][x]
+            if is_body(cur):
+                grid[y][x] = BODY_CHARS[max(0, BODY_CHARS.index(cur) - depth)]
+
+
+def render_grid(t: float, lid: float):
+    grid = blank()
+    accent = int(t * STOPS) % STOPS
+    acc = [ACCENT_CHARS[i][accent] for i in range(3)]
+
+    # --- limbs behind the head
+    behind = set()
+    for a0, bend, length, ph in TENTACLES:
+        cells, _ = walk(a0, bend, length, 1.5, ph, t, club=True, sway_amp=9.0)
+        behind |= cells
+    for a0, bend, length, thick, ph in ARMS_BACK:
+        cells, _ = walk(a0, bend, length, thick, ph, t)
+        behind |= cells
+    outline(grid, behind)
+    shade_limb(grid, behind, lighten=-0.14)
+
+    # --- fin skirt, welded to the mantle margin
+    fin_top, fin_bottom = fin_cells(2 * math.pi * t * 12.5)
+    fins = fin_top | fin_bottom
+    outline(grid, fins)
+    for x, y in fin_top:
+        grid[y][x] = FIN_CHARS[2]
+    for x, y in fin_bottom:
+        grid[y][x] = FIN_CHARS[3]
+
+    # --- mantle and head
+    outline(grid, BODY)
+    shade_cells(grid, BODY, BODY_CHARS)
+    occlude(grid, BODY, fins)
+    # crease along the mantle margin, so the fin reads as attached tissue
+    # rather than a halo floating around the body
+    for x in range(int(TAIL_X), int(HEAD_X) + 1):
         half = mantle_half(x + 0.5)
         if half <= 3.0:
             continue
-        u = (x - TAIL_X) / span
-        for cx, hw in BANDS:
-            if abs((x - TAIL_X) - cx) <= hw:
-                lvl = stripe_level(cx / span, wave_phase)
-                for y in range(H):
-                    if grid[y][x] not in BODY_MATS:
-                        continue
-                    rel = ((y + 0.5) - CY) / half
-                    if -0.80 < rel < 0.10:
-                        grid[y][x] = (ST0, ST1, ST2)[lvl]
-    for cu, rel in SPECKS:
-        x = int(TAIL_X + cu * span)
+        for y in (int(round(CY - half)), int(round(CY + half))):
+            if in_bounds(x, y) and is_body(grid[y][x]):
+                grid[y][x] = BODY_CHARS[max(0, BODY_CHARS.index(grid[y][x]) - 2)]
+    # cast shadow along the belly, where the body turns away from the light
+    for x, y in BODY:
+        half = max(half_at(x + 0.5), 1.0)
+        if ((y + 0.5) - CY) / half > 0.62 and is_body(grid[y][x]):
+            grid[y][x] = BODY_CHARS[max(0, BODY_CHARS.index(grid[y][x]) - 1)]
+
+    # --- chromatophore display: bands curve with the body and vary in depth,
+    # lit by the same key light so they sit on the surface rather than floating
+    wave = 2 * math.pi * t * 6.0
+    span = HEAD_X - TAIL_X
+    for i, (cx, hw) in enumerate(ZEBRA):
+        bright = math.sin(wave - (cx / span) * 4.2)
+        depth = 0.10 + 0.26 * ((i * 7) % 5) / 4.0        # how far down the flank
+        for y in range(H):
+            rel_row = ((y + 0.5) - CY)
+            for x in range(W):
+                half = mantle_half(x + 0.5)
+                if half <= 3.0 or not is_body(grid[y][x]):
+                    continue
+                rel = rel_row / half
+                if not (-0.84 < rel < -0.10 + depth):
+                    continue
+                bend = 1.6 * math.sin(rel * 1.7)          # bands wrap the mantle
+                if abs((x - TAIL_X) - cx - bend) <= hw:
+                    grid[y][x] = acc[quantise(surface_level(x, y) + 0.22 * bright,
+                                              x, y, 3)]
+    for cx, rel in MOTTLE:
+        x = int(TAIL_X + cx)
         half = mantle_half(x + 0.5)
         y = int(CY + rel * half)
-        if in_bounds(x, y) and grid[y][x] in BODY_MATS:
-            grid[y][x] = (ST0, ST1, ST2)[stripe_level(cu, wave_phase)]
+        for dx, dy in ((0, 0), (1, 0), (0, 1)):
+            if in_bounds(x + dx, y + dy) and is_body(grid[y + dy][x + dx]):
+                grid[y + dy][x + dx] = acc[quantise(surface_level(x + dx, y + dy),
+                                                    x + dx, y + dy, 3)]
+
+    # --- arms in front. Each arm is outlined against the arms behind it, so
+    # the crown reads as separate limbs instead of one merged slab.
+    drawn: list[set] = []
+    front = set()
+    for a0, bend, length, thick, ph in ARMS_FRONT:
+        cells, suckers = walk(a0, bend, length, thick, ph, t)
+        outline(grid, cells)
+        shade_limb(grid, cells)
+        for i, (sx, sy) in enumerate(suckers):
+            if (sx, sy) in cells:
+                put(grid, sx, sy, acc[2] if i % 2 else FIN_CHARS[2])
+        for earlier in drawn:
+            for x, y in earlier:
+                if any((x + dx, y + dy) in cells
+                       for dx in (-1, 0, 1) for dy in (-1, 0, 1)):
+                    grid[y][x] = OUTLINE_DARK
+        drawn.append(cells)
+        front |= cells
+    occlude(grid, BODY, front)
+
+    draw_eye(grid, lid)
+    return grid
 
 
 def draw_eye(grid, lid: float):
@@ -261,26 +435,32 @@ def draw_eye(grid, lid: float):
         cols.setdefault(x, []).append(y)
 
     if lid >= 0.9:
-        # shut: the eye disappears into the head, leaving a curved lash line
         for x, y in EYE:
-            grid[y][x] = B3 if y < CY - 3 else B2
+            grid[y][x] = BODY_CHARS[quantise(surface_level(x, y), x, y)]
         xs = sorted(cols)
         for i, x in enumerate(xs):
-            k = (i / max(len(xs) - 1, 1)) * 2 - 1        # -1..1 across the eye
+            k = (i / max(len(xs) - 1, 1)) * 2 - 1
             y = int(round(EYE_CY + 1 + 1.6 * (1 - k * k)))
             if (x, y) in EYE:
-                grid[y][x] = INK
+                grid[y][x] = OUTLINE_DARK
         return
 
-    stamp(grid, EYE, SCLERA)
+    outline(grid, EYE)
+    for x, y in EYE:
+        grid[y][x] = SCLERA
+    # eye ring: a darker rim inside the sclera, as on a real cuttlefish
+    for x, y in EYE:
+        if any((x + dx, y + dy) not in EYE
+               for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+            grid[y][x] = EYERING
     for x, ys in cols.items():
         ys.sort()
         cut = ys[0] + int(round(lid * len(ys)))
         for y in ys:
             if y < cut:
-                grid[y][x] = B3 if y < CY - 3 else B2
+                grid[y][x] = BODY_CHARS[quantise(surface_level(x, y), x, y)]
         if lid > 0.05 and cut - 1 in ys:
-            grid[cut - 1][x] = INK
+            grid[cut - 1][x] = OUTLINE_DARK
     if lid < 0.85:
         for dx, dy in PUPIL_OFFSETS:
             x, y = int(EYE_CX + dx) + 1, int(EYE_CY + dy) + 1
@@ -288,103 +468,30 @@ def draw_eye(grid, lid: float):
                 grid[y][x] = PUPIL
         for dx, dy in ((-2, -3), (-1, -3), (-2, -2)):
             x, y = int(EYE_CX + dx), int(EYE_CY + dy)
-            if (x, y) in EYE:
+            if (x, y) in EYE and grid[y][x] != EYERING:
                 grid[y][x] = SPEC
-
-
-def render_grid(t: float, lid: float):
-    grid = [[EMPTY] * W for _ in range(H)]
-    fin_phase = 2 * math.pi * t * 12.5          # ~12 frames per ripple
-    # depth order: back tentacles, back arms, fin, body+head, front arms, eye
-    for a0, bend, length, ph in TENTACLES:
-        cells, _ = walk(a0, bend, length, 1.5, ph, t, club=True, sway_amp=9.0)
-        stamp(grid, cells, ARM0)
-    for spec in ARMS_BACK:
-        cells, _ = arm_path(spec, t)
-        stamp(grid, cells, ARM0)
-    stamp(grid, fin_cells(fin_phase), FIN0)
-    stamp(grid, BODY, B2)
-    shade_body(grid)
-    add_chromatophores(grid, 2 * math.pi * t * 6.0)
-    for i, spec in enumerate(ARMS_FRONT):
-        cells, suckers = arm_path(spec, t)
-        stamp(grid, cells, (ARM1, ARM2, ARM1)[i])
-        for sx, sy in suckers:
-            if in_bounds(sx, sy) and (sx, sy) in cells:
-                grid[sy][sx] = SUCK
-    draw_eye(grid, lid)
-    # fin highlight: brighten the outer edge of the skirt
-    for x in range(W):
-        fins = [y for y in range(H) if grid[y][x] == FIN0]
-        if fins:
-            grid[min(fins)][x] = FIN1
-    return grid
-
-
-# ---------------------------------------------------------------- palette ---
-INK_HEX = "#042f2e"
-FIXED = {
-    ".": "#00000000",
-    "#": INK_HEX,
-    "R": "#99f6e4",   # rim light
-    "0": "#134e4a",   # belly
-    "1": "#0f766e",
-    "2": "#0d9488",
-    "3": "#14b8a6",
-    "4": "#5eead4",   # lit back
-    "f": "#2dd4bf",   # fin
-    "F": "#99f6e4",   # fin edge
-    "m": "#0b5450",   # arms: shadowed, mid, lit — inside the body ramp
-    "n": "#0f766e",
-    "o": "#149c92",
-    "~": "#99f6e4",   # suckers
-    "E": "#ecfdf5",   # sclera
-    "P": INK_HEX,     # pupil
-    "S": "#ffffff",   # specular
-}
-
-STOPS = 20                        # hue stops around the restricted arc
-HUE_FROM, HUE_TO = 170.0, 320.0   # teal -> cyan -> violet -> magenta
-ST_CHARS = ("abcdeghijklpqrstvwxy", "ABCDGHIJKLMNOQTUVWXY", "uz56789!$%&()*+,-/:;")
-
-
-def hexcol(h_deg, s, v):
-    r, g, b = colorsys.hsv_to_rgb((h_deg % 360) / 360.0, s, v)
-    return "#%02x%02x%02x" % (int(r * 255), int(g * 255), int(b * 255))
-
-
-def build_palette():
-    pal = dict(FIXED)
-    pool = "".join(ST_CHARS)
-    clash = set(pool) & set(FIXED) or (len(set(pool)) != len(pool))
-    if clash:
-        raise SystemExit(f"palette character clash: {clash}")
-    for i in range(STOPS):
-        # ping-pong the arc so the loop returns home without crossing the greens
-        k = i / STOPS * 2
-        k = k if k <= 1 else 2 - k
-        hue = HUE_FROM + (HUE_TO - HUE_FROM) * k
-        pal[ST_CHARS[0][i]] = hexcol(hue, 0.78, 0.36)   # stripe, dark phase
-        pal[ST_CHARS[1][i]] = hexcol(hue, 0.70, 0.62)   # stripe, mid
-        pal[ST_CHARS[2][i]] = hexcol(hue, 0.52, 0.92)   # stripe, lit
-    return pal
-
-
-def to_chars(grid, t):
-    i = int(t * STOPS) % STOPS
-    m = {
-        EMPTY: ".", INK: "#", RIM: "R", B0: "0", B1: "1", B2: "2", B3: "3", B4: "4",
-        FIN0: "f", FIN1: "F", ARM0: "m", ARM1: "n", ARM2: "o", SUCK: "~",
-        SCLERA: "E", PUPIL: "P", SPEC: "S",
-        ST0: ST_CHARS[0][i], ST1: ST_CHARS[1][i], ST2: ST_CHARS[2][i],
-    }
-    return ["".join(m[c] for c in row) for row in grid]
+    # raised brow above the eye and a cheek highlight below it: the two marks
+    # that make the face read as pleased rather than blank
+    for i in range(-4, 5):
+        bx = int(EYE_CX) + i
+        by = int(EYE_CY - EYE_RY) - 1 - int(round(1.4 * (1 - (i / 4.5) ** 2)))
+        if in_bounds(bx, by) and is_body(grid[by][bx]):
+            grid[by][bx] = BODY_CHARS[min(len(BODY_CHARS) - 1,
+                                          BODY_CHARS.index(grid[by][bx]) + 2)]
+    for dx, dy in ((-3, 5), (-2, 5), (-2, 6)):
+        cx2, cy2 = int(EYE_CX + dx), int(EYE_CY + dy)
+        if in_bounds(cx2, cy2) and is_body(grid[cy2][cx2]):
+            grid[cy2][cx2] = BODY_CHARS[min(len(BODY_CHARS) - 1,
+                                            BODY_CHARS.index(grid[cy2][cx2]) + 1)]
 
 
 # -------------------------------------------------------------------- loop ---
 N_FRAMES, FRAME_MS = 150, 200
-BLINKS = (30, 96)                  # ~6 s and ~19 s into the loop
-BLINK_SHAPE = (0.62, 1.0, 0.72)    # half, shut, half
+BLINKS = (30, 96)
+BLINK_SHAPE = (0.62, 1.0, 0.72)
+POSTER_FRAME = 45
+SCALE = 8
+SPECS = Path(__file__).parent
 
 
 def lid_at(frame: int) -> float:
@@ -394,8 +501,13 @@ def lid_at(frame: int) -> float:
     return 0.0
 
 
+def to_chars(grid):
+    return ["".join("." if c is None else FIXED_CHARS.get(c, c) for c in row)
+            for row in grid]
+
+
 def render(t: float, lid: float = 0.0):
-    return to_chars(render_grid(t, lid), t)
+    return to_chars(render_grid(t, lid))
 
 
 def crop(frames):
@@ -403,11 +515,6 @@ def crop(frames):
     used_c = {c for f in frames for row in f for c, ch in enumerate(row) if ch != "."}
     r0, r1, c0, c1 = min(used_r), max(used_r), min(used_c), max(used_c)
     return [[row[c0:c1 + 1] for row in f[r0:r1 + 1]] for f in frames]
-
-
-POSTER_FRAME = 45          # mid-loop: violet banding over the teal body
-SCALE = 8
-SPECS = Path(__file__).parent
 
 
 def main():
