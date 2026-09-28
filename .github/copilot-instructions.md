@@ -1,17 +1,17 @@
 Repository instruction sources (read these first):
 
 1. `AGENTS.md` — single source of truth for this repo
-2. `docs/hla.md` — end-state architecture and LangGraph integration
-3. `docs/architecture.md` — design rationale
-4. `docs/viability.md` — harness vs prompts in existing CLIs
+2. `docs/brief.md` — authoritative product brief (wins on conflict)
+3. `docs/hla.md` — end-state architecture
+4. `docs/architecture.md` — design rationale
+5. `docs/viability.md` — harness vs configuring peers
 
 Rules:
 
 - Python 3.12+ project (`src/cuttle/`, see `pyproject.toml`).
-- Orchestrator owns phase control and model binding; never an LLM or third-party `task`/subagent router.
-- Brain plans (Directive); hands execute steps; deterministic evals gate progress.
-- Agent runtime is Cuttle-owned from day one (`create_agent` / LangGraph tool loop). Do not add Deep Agents.
-- Provider hub: registry → auth → catalog → role ModelRefs → factory. Secrets in auth store, not committed config. Add vendors via adapters, not orchestrator forks.
-- Python owns the LangGraph engine + provider hub; Rust owns the interactive TUI only (event consumer). Do not put orchestration in Rust.
-- Update HLA/docs when changing the control plane.
+- Pool of ≤5 coding models; `decide()` (Jev / local) owns judgement; coding models own edits; deterministic verifier gates progress.
+- Complexity classes C0–C4 + step kinds; presets Thrifty / Balanced / Best quality / Local only; cascade on failure.
+- Privacy is a routing rule (local-only paths never to cloud). LiteLLM library as gateway; Textual TUI; ACP for editors.
+- Do not add Deep Agents. Do not treat brain/hands role pins or a Rust TUI as the day-one product (superseded by the brief).
+- Update brief/HLA when changing the control plane.
 - Do not commit unless asked.
