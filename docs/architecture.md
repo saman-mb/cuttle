@@ -1,256 +1,51 @@
-# Cuttle architecture
+# Cuttle — architecture rationale
 
-**Frontier mind. Local hands.**
+> Companion to [`brief.md`](brief.md) and [`hla.md`](hla.md). Explains *why* the pieces exist, not the full product surface.
 
-Cuttle is a coding-agent harness that treats model routing as infrastructure, not a prompt hope. A frontier model plans. A local (or cheap) model executes. A deterministic orchestrator decides what runs, when it advances, and when to escalate.
+## The bet
 
-This document is the scaffold-era design. Implementation comes next; the contracts and control plane below are the product.
+Existing coding agents are excellent at “one strong model with tools.” They are weak at **cheap, measured, enforced routing**: deciding *per step* which model should work, proving it with evals, and guaranteeing privacy without trusting a prompt.
 
----
+Cuttle’s bet: a purpose-built harness with a typed decision layer (**Jev** / `decide()`) and a small **model pool** beats both “frontier for everything” on cost (at similar pass rate) and “local only” on pass rate — or we publish that it does not.
 
-## Thesis
+## Why not configure OpenCode / Claude Code / pi?
 
-Most agent CLIs today burn frontier tokens on mechanical turns (reads, edits, tool JSON, retries). Claude Code and Codex can attach cheaper models to named agents or custom configs, but **freeform “spawn a cheap subagent” is unreliable** — especially from slash commands / skills that only *ask* the orchestrator LLM to comply.
-
-Cuttle inverts that:
-
-| Concern | Who owns it |
-|---|---|
-| Which model runs which role | **Orchestrator** (config), never the brain LLM |
-| What “done” means for a step | **Directive acceptance checks** + eval engine |
-| When to spend frontier again | **Escalation rules** after failed local/cheap hands |
-
-The economic bet: ~70% of agent tokens are execution. Keep those off the frontier whenever a local coder can follow a tight brief.
-
----
-
-## System overview
-
-![Cuttle harness overview](diagrams/cuttle-harness.svg)
-
-*Source: [`diagrams/cuttle-harness.mmd`](diagrams/cuttle-harness.mmd)*
-
-```mermaid
-%%{init: {
-  "theme": "base",
-  "themeVariables": {
-    "primaryColor": "#0f766e",
-    "primaryTextColor": "#ecfdf5",
-    "primaryBorderColor": "#115e59",
-    "secondaryColor": "#134e4a",
-    "secondaryTextColor": "#ccfbf1",
-    "secondaryBorderColor": "#0f766e",
-    "tertiaryColor": "#042f2e",
-    "lineColor": "#5eead4",
-    "textColor": "#ecfdf5",
-    "mainBkg": "#042f2e",
-    "nodeBorder": "#2dd4bf",
-    "clusterBkg": "#022c22",
-    "clusterBorder": "#14b8a6",
-    "titleColor": "#99f6e4",
-    "edgeLabelBackground": "#022c22"
-  }
-}}%%
-flowchart TB
-  subgraph UX["CLI / IDE"]
-    U["Developer · cuttle implement …"]
-  end
-
-  subgraph ORCH["Harness orchestrator — YOUR code, no LLM"]
-    direction TB
-    P["PLAN"] --> V["VALIDATE"]
-    V --> D["DISPATCH"]
-    D --> E["EVAL"]
-    E --> R{"Pass?"}
-    R -->|yes| N{"More steps?"}
-    N -->|yes| D
-    N -->|no| DONE["DONE · cost report"]
-    R -->|retry| D
-    R -->|escalate| X["ESCALATE · mid-tier hands or brain replan"]
-    X --> D
-  end
-
-  subgraph BRAIN["Brain — frontier"]
-    B["Cuttle brain · read / search only<br/>emit Directive · no code mutation"]
-  end
-
-  subgraph HANDS["Hands pool — local by default"]
-    H["Cuttle hands · edit / bash / tools<br/>one Step · scoped paths · fresh context"]
-  end
-
-  subgraph EVAL["Eval engine — deterministic"]
-    G["pytest · tsc · ripgrep · path allowlist<br/>no LLM-as-judge"]
-  end
-
-  U --> P
-  P --> B
-  B -->|"Directive JSON"| V
-  D --> H
-  H -->|"StepResult + diff"| E
-  E --> G
-  G --> R
-```
-
----
-
-## How a run works
-
-```text
-cuttle implement "add admin login UI (no auth backend)"
-
-1. Orchestrator starts phase PLAN
-2. Brain (frontier) inspects the repo — read/search only
-3. Brain emits a Directive: ordered steps, allowed paths, exact commands, acceptance checks
-4. Orchestrator validates the schema (and optionally HITL plan preview)
-5. For each step:
-     Hands (local) executes exactly that step
-     Eval engine runs acceptance checks
-     fail → retry hands (fresh session)
-     fail again → escalate that step only (cheap cloud hands or brain replan)
-6. Final checks → report (brain $ · hands $0 · escalate $)
-```
-
-### Directive (the handoff)
-
-The brain does not leave a vibes plan. It emits a contract:
-
-- `objective` — what success looks like  
-- `steps[]` — small, unambiguous units of work  
-  - `files_allowed` / `files_forbidden`  
-  - `instructions` — ultra-prescriptive for weaker local models  
-  - `commands[]` — preferred exact shell  
-  - `acceptance[]` — checkable claims (file exists, command exit 0, content match)  
-- `final_checks[]` — suite-level gates  
-- `escalate_if[]` — when hands must stop and return to the brain  
-
-Orchestrator resolves **pinned** `ModelRef`s (brain / hands / escalate) before invoke. Those refs come from the **provider hub**: auth → catalog → role assign. Brain refs may include capability-gated controls — context depth, effort, thinking/budget, sampling — applied only when the provider profile supports them; unsupported knobs fail closed.
-
-Hands never see the full frontier transcript — only the current step plus orchestrator-injected snippets.
-
-### Provider hub (OpenCode-class connect UX)
-
-Operators should complete the full flow **inside the Rust TUI** without dropping to a separate shell:
-
-1. `/connect` — pick a vendor, paste key (or OAuth where supported); list/logout connected providers
-2. `/models` — see everything authenticated + local/compat; assign to **brain / hands / escalate**
-3. Run `implement` with those pinned roles
-
-CLI (`cuttle auth` / `cuttle models`) is parity for scripts and `--plain` — same engine verbs, not a different product path. Implementation stays modular: provider registry + auth store + catalog + capability matrix + `backends/` factory. Adding a cloud vendor is a registry/adapter row, not an orchestrator change. OpenAI-compatible “Other” covers the long tail; local provisioner registers hands into the same catalog.
-
----
-
-## Concurrency model
-
-Local inference can multiplex a few sessions (shared weights, per-session KV), but coding agents are context-heavy. Product defaults:
-
-| Mode | Parallelism | Default? |
+| Approach | What you get | What you do not get |
 |---|---|---|
-| Serial implement | 1 writer | **Yes** |
-| Scout pack | 2–3 read-only | Optional |
-| Worktree swarm | N isolated writers | Later / strong GPU |
+| Sub-agent model pins | Different models for explore vs edit | Routing still often decided by an expensive orchestrator LLM |
+| Skills / prompts | Fast to try | Instructions, not guarantees |
+| pi-style extension | Good prototype for Jev-before-turn | Per-turn not per-planned-step; no LangGraph planner/integrator; TS extension limits |
+| **Cuttle harness** | `decide()` outside the coding model; ledger; privacy in the router; GPU-aware scheduling | You maintain the control plane |
 
-Parallel *writers* on one checkout collide. Parallel *readers* are useful. The orchestrator caps concurrency; it does not ask the brain how many children to spawn.
+Suggested spike: pi extension for routing baselines → then LangGraph build once the idea holds up on your tasks.
 
----
-
-## Why this is different from what’s out there
-
-![Cuttle vs today’s agent CLIs](diagrams/cuttle-vs-today.svg)
-
-*Source: [`diagrams/cuttle-vs-today.mmd`](diagrams/cuttle-vs-today.mmd)*
-
-```mermaid
-%%{init: {
-  "theme": "base",
-  "themeVariables": {
-    "primaryColor": "#0f766e",
-    "primaryTextColor": "#ecfdf5",
-    "primaryBorderColor": "#115e59",
-    "lineColor": "#5eead4",
-    "textColor": "#ecfdf5",
-    "clusterBkg": "#022c22",
-    "clusterBorder": "#14b8a6",
-    "titleColor": "#99f6e4",
-    "edgeLabelBackground": "#022c22"
-  }
-}}%%
-flowchart LR
-  subgraph TODAY["Typical agent CLIs"]
-    direction TB
-    T1["Single frontier loop<br/>or prompt-hoped routing"]
-    T2["Subagents inherit parent model<br/>or unreliable spawn overrides"]
-    T3["Slash command = instructions<br/>not enforced model binding"]
-    T4["LLM judge / long retries<br/>on expensive tokens"]
-    T1 --> T2 --> T3 --> T4
-  end
-
-  subgraph CUTTLE["Cuttle"]
-    direction TB
-    C1["Orchestrator pins models"]
-    C2["Brain emits Directive only"]
-    C3["Hands execute bounded steps"]
-    C4["Deterministic evals gate progress"]
-    C1 --> C2 --> C3 --> C4
-  end
-
-  TODAY -.->|"Cuttle's wedge"| CUTTLE
-```
-
-### Comparison table
-
-| Capability | Claude Code / Codex (native) | Gateway / org-chart tools | **Cuttle** |
-|---|---|---|---|
-| Cheaper subagents | Possible via frontmatter / agent TOML; **ad-hoc spawn unreliable** | Routes among existing CLIs | **Pinned** brain vs hands by config |
-| Local execution | BYOK / Ollama possible, not the core loop | Often wraps cloud CLIs | **Default hands = local** |
-| Plan → execute contract | Freeform | Engine-dependent | **Directive schema** |
-| Advance criteria | Model decides | Model / engine decides | **Eval gates** |
-| Escalation | Manual / hope | Per-employee config | **Step-scoped ladder** (local → mid-tier → replan) |
-| What we build | Use as-is | Bus over engines | **Own harness** (orchestrator + role tool loops) |
-
-Cuttle is not “another multi-agent swarm.” It is a **cost and reliability control plane** for hybrid cloud+local coding agents.
-
----
-
-## Repository map (scaffold)
+## Control plane vs coding models
 
 ```text
-cuttle/
-  src/cuttle/
-    cli/              # Python entry / plain text / engine events
-    orchestrator/     # LangGraph phase machine
-    contracts/        # Directive / Step / Acceptance / run events
-    agents/           # brain/hands AgentRuntime (Cuttle tool loop)
-    middleware/       # scope guard · stuck detector · telemetry
-    evals/            # deterministic checkers
-    backends/         # model factories + adapters
-    providers/        # vendor registry + catalog
-    auth/             # credential store
-    provisioner/      # llmfit → deploy
-    skills/           # optional workflows
-  crates/
-    cuttle-tui/       # Rust interactive TUI (event consumer)
-  docs/
-    architecture.md
-    diagrams/
+decide()          →  class, model pick, done?, escalate?, privacy?, risk?
+coding model      →  read / edit / shell / argue about code
+verifier (code)   →  tests, lint, types (ground truth)
+router (code)     →  privacy filter, budgets, LiteLLM call, cost log
 ```
 
-**Python** owns the engine (LangGraph + runtime + evals + provisioner). **Rust** owns the interactive TUI only. Wire them with a versioned event protocol — never put orchestration in Rust, and never depend on unofficial Rust LangGraph ports.
+Never let the coding model choose the next coding model as a matter of policy. It may *propose*; `decide()` + router *commit*.
 
----
+## Why LiteLLM as a library
 
-## Non-goals (v0)
+One process, no extra daemon for the common case. Same config shape scales to a **LiteLLM proxy** when two machines (or a company gateway) should look like one pool with role names (`local-fast`, `local-strong`, `decide`, `embed`).
 
-- Trusting the brain LLM to pick cheaper children  
-- LLM-as-primary-judge  
-- Default 8-way local writer swarm on a single GPU  
-- Replacing every existing coding CLI — Cuttle is the harness, not a Claude Code clone  
+## Why Textual, not a Rust TUI first
 
----
+The brief’s interactive surface is a Python Textual TUI beside the LangGraph engine — one language for agent core and rich terminal UX. A faster Rust CLI front-end remains an optional later optimisation, not the product’s defining split.
 
-## Next implementation slice
+## Why five models
 
-1. Pydantic `Directive` / `Step` / `AcceptanceCheck`  
-2. Orchestrator graph + pytest-backed eval runner  
-3. `CuttleAgentRuntime`: brain (frontier, read-only, structured directive) + hands (local, one step)  
-4. Cuttle tool host (FS / edit / shell) + scope middleware  
-5. CLI: `cuttle implement` + status + cost summary  
+More models make calibration slow and `/why` hard to explain. Decision and embedding models sit outside the five so the pool stays about *coding work*.
+
+## Why worktrees
+
+Parallel sub-agents editing the same tree conflict. One worktree per writer + an integrator that merges and re-runs checks is the boring, correct answer.
+
+## Eval honesty
+
+Routing is only worth shipping if the phase-05 chart shows a better pass-rate×cost point than the phase-03 baselines. If it does not, say so and keep cascading / learning until it does — or narrow the claim.

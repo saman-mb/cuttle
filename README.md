@@ -5,18 +5,18 @@
 </p>
 
 <p align="center">
-  <b>Coding agent harness: frontier plans, local implements. The router is code.</b><br/>
-  Pin <b>brain</b> / <b>hands</b> / <b>escalate</b> in the orchestrator — so expensive models plan and <b>your</b> local (or cheap) models execute, gated by deterministic evals.
+  <b>A local-first coding agent that gives every piece of work to the right model.</b><br/>
+  Pool of up to five models · Jev decides with calibrated probabilities · cheap steps stay cheap · private code stays local.
 </p>
 
 <p align="center">
-  <i>Frontier mind. Local hands.</i> — tagline only; local-first by default.
+  <i>Like a cuttlefish, it changes to suit the job.</i>
 </p>
 
 [![License: MIT](https://img.shields.io/github/license/saman-mb/cuttle?color=0f766e)](LICENSE)
 [![Website](https://img.shields.io/badge/website-saman--mb.github.io%2Fcuttle-14b8a6?logo=github)](https://saman-mb.github.io/cuttle/)
-[![Local hands](https://img.shields.io/badge/default-local%20hands-0d9488)](#-modes)
-[![Router is code](https://img.shields.io/badge/router-is%20code-134e4a)](#-how-it-works)
+[![Pool ≤5](https://img.shields.io/badge/pool-≤5%20models-0d9488)](docs/brief.md)
+[![decide()](https://img.shields.io/badge/routing-decide()%20%2F%20Jev-134e4a)](docs/brief.md)
 [![Python](https://img.shields.io/badge/engine-Python%203.12%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![Status](https://img.shields.io/badge/status-pre--alpha-yellow)](#-status)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -25,74 +25,61 @@
 [![Issues](https://img.shields.io/github/issues/saman-mb/cuttle)](https://github.com/saman-mb/cuttle/issues)
 
 <p align="center">
-  <img src="docs/assets/demo.gif" width="760" alt="Illustrative cuttle implement run: plan → hands → eval with a local-first status spine and cost/privacy receipt." />
+  <img src="docs/assets/demo.gif" width="760" alt="Illustrative Cuttle session: plan with per-step models and cost, then execute with verifier gates." />
 </p>
-<p align="center"><sub><i>Illustrative — phases of <code>cuttle implement</code>; metrics in real runs come from the ledger (not invented here).</i></sub></p>
+<p align="center"><sub><i>Illustrative — real metrics come from the routing ledger once the runtime ships.</i></sub></p>
 
-**[Website →](https://saman-mb.github.io/cuttle/)** · **[How it works →](#-how-it-works)** · **[Install →](#-install)**
+**[Website →](https://saman-mb.github.io/cuttle/)** · **[Brief →](docs/brief.md)** · **[Install →](#-install)**
 
 ---
 
 ## Why Cuttle
 
-Claude Code, Codex, and friends are excellent agents. They are weak at **enforced hybrid economics**: “plan expensive, execute local.” Skills and config *ask* the model to delegate; the orchestrator LLM still decides whether to comply.
+Claude Code, Codex, OpenCode, and pi are excellent agents. They are weak at **per-step routing that is cheap, measured, and enforced**: the expensive model often still decides who does what, privacy is a prompt, and you cannot prove you beat “frontier for everything” on cost.
 
 Cuttle inverts that:
 
 | Concern | Who owns it |
 |---|---|
-| Which model is brain vs hands | **Orchestrator** (config) — never the LLM |
-| What “done” means for a step | **Deterministic evals** (commands, files, content) |
-| When to spend frontier again | **Escalate policy** after failed local/cheap hands |
-
-Not another “supports Ollama” checkbox. A **control plane** for local-first coding agents.
+| Which model runs this step | **`decide()` + router** (Jev probabilities × preset) — not the coding LLM |
+| What “done” means | **Verifier** (tests, lint, types) + optional `decide(done?)` |
+| Privacy | **Router filter** — local-only paths never go to cloud |
+| Did routing help? | **Evals + routing ledger** vs single-model baselines |
 
 ---
 
 ## How it works
 
 ```text
-cuttle implement "fix failing auth test"
+cuttle run "Add rate limiting and tests"
         │
         ▼
-   Brain (pinned) ──► Directive (linted, checkable steps)
+   decide: plan? · classify steps (C0–C4 + kind)
         │
         ▼
-   Hands (local by default) × N scoped steps
+   For each step: P(success|model) → cheapest eligible above threshold
         │
         ▼
-   Evals ──► retry / replan / escalate (only if you configured it) / done
+   Coding model + tools  →  verifier  →  retry / escalate / ask
         │
         ▼
-   Receipt: brain $ · hands $ · escalate $ · what left the machine
+   One diff · cost by model · /why · ledger write
 ```
 
-- **Brain** plans only (read/search) and emits a structured directive.
-- **Hands** execute one step at a time under path scope, with a fresh attempt packet on retry.
-- **Evals** are code, not vibes — no LLM-as-judge gate.
-- **Status spine** (CLI now; Rust TUI later): model · locality · cost · phase.
+- **Pool ≤ 5** coding models (cloud, local, or mixed). Decision and embedding models sit outside the five.
+- **Presets:** Thrifty · Balanced · Best quality · Local only.
+- **Cascade:** start cheap; escalate when checks fail.
+- **Interfaces:** Textual TUI, headless/CI, editors via ACP.
 
 ---
 
-## Modes
+## Modes (pool composition)
 
-| Mode | Brain | Hands | Cloud escalate |
-|---|---|---|---|
-| **`local`** (default intent) | Local / cheap | Local | Off unless you opt in |
-| **`hybrid`** | Frontier | Local | Optional mid-tier after failed evals |
-| **`cloud`** | Frontier | Cloud / cheap cloud | Per policy |
-
-Escalate-to-cloud is a **configured door**, not a silent surprise.
-
----
-
-## What leaves the machine
-
-Be honest about hybrid:
-
-- **Local mode:** plan + implement stay on your endpoint (e.g. Ollama). Nothing need phone home.
-- **Hybrid:** the **brain** may send repo context / snippets to a frontier provider. Hands stay local by default.
-- Every run should print a **privacy receipt** (what class of data left the box) once that surface ships — until then, assume hybrid brain traffic is sensitive.
+| Pool | Example |
+|---|---|
+| **Cloud only** | Frontier + mid-tier + cheap fast + open-weight via OpenRouter — no GPU needed |
+| **Mixed** | Frontier + mid-tier cloud; local coder for easy/private work |
+| **Local only** | Up to five local models — offline, free per task, slower |
 
 ---
 
@@ -110,39 +97,31 @@ pip install -e ".[dev]"
 cuttle version
 ```
 
-### BYO Ollama quickstart (target path)
-
-Point hands at a model you already run — no download theatre inside `implement`:
+Target happy path (when phases land):
 
 ```bash
-# example — exact flags land with the runtime epics
-export CUTTLE_HANDS_MODEL=ollama:qwen2.5-coder:32b
-export CUTTLE_HANDS_BASE_URL=http://127.0.0.1:11434
-# optional hybrid brain:
-# export CUTTLE_BRAIN_MODEL=anthropic:claude-sonnet-4-6
-
-cuttle doctor          # tool-call smoke (when shipped)
-cuttle implement "fix the failing test"
+cuttle init          # connect providers, optional local detect, pick ≤5, calibrate
+cuttle run "fix the failing test"
 ```
 
-Copy [`.env.example`](.env.example) for more knobs. Optional `cuttle hands setup` (llmfit-class wizard) is **out of band** — never a side effect of `implement`.
+Copy [`.env.example`](.env.example) for keys and pool overrides as they land.
 
 ---
 
 ## Status
 
-**Pre-alpha.** Contracts and docs are ahead of the runtime. The kill criterion for marketing “local hands” is a **published golden suite** (pass@1, escalate %, $ vs all-frontier) — see the backlog.
+**Pre-alpha.** The [project brief](docs/brief.md) is the product authority. Runtime follows phases **01–10** (pool/`decide()` → single-model loop → evals → routing → sub-agents → safety → learning → interfaces → packaging).
 
-Roadmap epics: [E1–E9 on GitHub](https://github.com/saman-mb/cuttle/issues?q=is%3Aissue+is%3Aopen+label%3Aepic).
+Roadmap: [phase epics on GitHub](https://github.com/saman-mb/cuttle/issues?q=is%3Aissue+is%3Aopen+label%3Aepic).
 
 ---
 
 ## Stack (target)
 
-- **Python 3.12+** engine — phase machine, `CuttleAgentRuntime`, evals, thin provider access
-- **Rust** interactive TUI later — status spine + connect/models overlays; no orchestration in Rust
-- Versioned engine event stream shared by CLI and TUI
-- Typer / `--plain` / `NO_COLOR` always available
+- **Python 3.12+** — LangGraph agent core, LiteLLM router, Textual TUI, evals
+- **`decide()`** — hosted Jev or local Jev-style (Winnow / mini-jev)
+- **Local models** — llama-swap → llama.cpp (or MLX on Mac); Ollama as a simpler option
+- **Editors** — Agent Client Protocol; **MCP** client for tools
 
 ---
 
@@ -150,20 +129,21 @@ Roadmap epics: [E1–E9 on GitHub](https://github.com/saman-mb/cuttle/issues?q=i
 
 | Path | Role |
 |---|---|
-| `src/cuttle/` | Engine (CLI, orchestrator, contracts, agents, evals, backends, …) |
-| `crates/cuttle-tui/` | Rust TUI (when landed) |
-| `docs/` | HLA, architecture, viability, assets |
-| `docs/assets/` | README / site demo GIFs |
+| `src/cuttle/` | Product code (CLI, TUI, agent, decide, router, tools, evals, …) |
+| `docs/brief.md` | Authoritative product brief |
+| `docs/hla.md` | End-state architecture |
+| `docs/assets/` | README / site GIFs |
 | `AGENTS.md` | Instructions for every coding harness |
 
 ---
 
 ## Docs
 
-- [HLA](docs/hla.md) — end-state architecture (being aligned to local-first vision)
+- [Brief](docs/brief.md) — product, phases, Jev, stack
+- [HLA](docs/hla.md) — engineering architecture
 - [Architecture](docs/architecture.md) — design rationale
-- [Viability](docs/viability.md) — why a harness beats hope-based routing
-- [Website](https://saman-mb.github.io/cuttle/) — landing (Pages epic)
+- [Viability](docs/viability.md) — why a harness vs configuring peers
+- [Website](https://saman-mb.github.io/cuttle/) — landing
 
 ---
 

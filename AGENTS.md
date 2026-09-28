@@ -1,10 +1,12 @@
 # Cuttle — agent instructions
 
-> **Shared instructions for every coding harness.** This file is the source of truth for Cursor, Codex CLI, OpenCode, GitHub Copilot, Windsurf, Antigravity, and anything else that reads `AGENTS.md`. Claude Code reads the same content via `CLAUDE.md` (symlink). Keep this file tool-neutral: no harness-specific spawn syntax, no "use the Task tool" assumptions.
+> **Shared instructions for every coding harness.** Source of truth for Cursor, Codex CLI, OpenCode, GitHub Copilot, and anything that reads `AGENTS.md`. Claude Code reads the same content via `CLAUDE.md` (symlink). Keep this file tool-neutral.
 
-**Product:** Cuttle — frontier mind, local hands. An agentic coding CLI that plans on a frontier model and executes on local (or cheap) hands under a deterministic orchestrator.
+**Product:** Cuttle — a local-first coding agent that routes each step to the cheapest model likely to pass, using **Jev** (`decide()`) for calibrated decisions. Tagline: *like a cuttlefish, it changes to suit the job.*
 
-**Repo status:** Scaffold + docs. Little or no runtime code yet. Prefer docs and structure over inventing APIs.
+**Authoritative brief:** [`docs/brief.md`](docs/brief.md). If anything here conflicts with the brief, **the brief wins**.
+
+**Repo status:** Scaffold + docs. Prefer docs and structure over inventing APIs.
 
 ---
 
@@ -12,44 +14,48 @@
 
 Read, in order, if the task touches architecture or the agent loop:
 
-1. [`docs/hla.md`](docs/hla.md) — end-state architecture, orchestration loop, LangGraph/LangChain integration, implementation checklist
-2. [`docs/architecture.md`](docs/architecture.md) — design rationale and diagrams
-3. [`docs/viability.md`](docs/viability.md) — why a harness beats prompts in Claude Code / Codex
+1. [`docs/brief.md`](docs/brief.md) — product, phases, Jev, stack, limits
+2. [`docs/hla.md`](docs/hla.md) — end-state architecture and build checklist
+3. [`docs/architecture.md`](docs/architecture.md) — design rationale
+4. [`docs/viability.md`](docs/viability.md) — why a purpose-built harness vs configuring peers
 
-Do not invent a different control plane than the HLA.
+Do not invent a different control plane than the brief / HLA.
 
 ---
 
 ## 2. Hard product rules
 
-1. **Orchestrator owns phases and model binding.** Never let an LLM choose which model is brain vs hands, or advance steps on vibes.
-2. **Brain plans; hands execute.** Brain emits a structured `Directive`. Hands run one `Step` at a time. Evals (deterministic) gate progress.
-3. **Own the agent runtime from day one.** Brain/hands run on Cuttle’s tool loop (`create_agent` / LangGraph model↔tools), not Deep Agents. No third-party `task` / subagent router — ever.
-4. **Two graphs:** outer Cuttle LangGraph orchestrator; inner brain/hands agent loops (also Cuttle-owned).
-5. **Local provisioner (llmfit → download → deploy) is first-class.** Do not assume the user already set up Ollama by hand as the only path.
-6. **Provider hub is first-class.** Many vendors via a registry + adapters; easy auth and catalog. **Full connect → models → role-assign must work inside the Rust TUI** (primary interactive path); CLI is the same engine verbs for scripts/`--plain`. Secrets stay in the auth store — not in committed config. Orchestrator still pins roles; agents do not self-select providers mid-run.
-7. **Default concurrency:** one hands writer. Optional read-only scouts later. No swarm-as-default.
-8. **Process split:** Python owns the engine (LangGraph + runtime + evals + provisioner + provider hub). The interactive TUI is a **Rust** binary that renders a versioned event stream from the engine — it must not own phases, model binding, or evals.
+1. **Pool ≤ 5 coding models.** Decision (Jev / Winnow) and embedding models sit **outside** the five. Cloud-only, mixed, and local-only pools are all first-class.
+2. **`decide()` owns judgement; coding models own edits.** Jev never writes code. Deterministic checks (tests, lint, types, gitleaks, allow-lists) are ground truth; Jev handles what those cannot.
+3. **Complexity class + kind gate eligibility.** Steps are C0–C4 and explore/edit/test/review/summarise. The class (not the user ad-hoc) decides which models may run the step. Presets: Thrifty / Balanced / Best quality / Local only.
+4. **Cascade on failure.** Start at the predicted tier; escalate (or ask) when checks fail. Log every decision with its probability for `/why`, replay, and the routing ledger.
+5. **Privacy is a routing rule.** Local-only paths never go to cloud, whatever the preset. Secret scan before cloud; `decide()` as a second check.
+6. **One edit format.** Search-and-replace blocks (unified-diff fallback), normalised in the LiteLLM gateway so every pool model is tested the same way.
+7. **Sub-agents isolate in git worktrees.** Integrator merges and re-runs checks. Default is not an unbounded swarm.
+8. **Python owns the product.** LangGraph agent core, LiteLLM router (library), Textual TUI, evals, provisioner/gateway glue. Editors via ACP. A Rust CLI front-end is optional later — **not** the day-one interactive path.
+9. **Evals before routing claims.** Phase 03 baselines (“frontier for everything”, each model alone, “local only”) exist before phase 05 routing is declared a win. Be honest if routing does not win.
+10. **No hosted Cuttle service.** Users bring their own keys. No custom graphical IDE.
 
 ---
 
 ## 3. Language and stack
 
-- **Engine language: Python 3.12+** (see `pyproject.toml`) — LangGraph orchestrator, `CuttleAgentRuntime`, evals, provisioner, thin Typer/text CLI.
-- **TUI language: Rust** — fast interactive terminal UI; consumes engine events only (no LangGraph in Rust; no official Rust LangGraph).
-- **Packaging:** `src/cuttle/` for the Python engine; Rust TUI crate under e.g. `crates/cuttle-tui/` (or equivalent). Engine install: `pip install -e ".[dev]"`.
-- **Orchestrator:** LangGraph `StateGraph` (Python only for this product).
-- **Models / tools:** LangChain (`init_chat_model`, tools, middleware) behind a modular provider hub (registry → auth → catalog → factory).
-- **Agent runtime:** Cuttle-owned (`AgentRuntime` → `create_agent` and/or hand-rolled LangGraph tool loop). Do not add Deep Agents as a dependency.
-- **Providers:** native adapters for first-class vendors; `openai_compat` catch-all for long-tail + local; optional thin adapters (Bedrock/Azure) when needed. Do not hardcode vendor lists into the orchestrator.
-- **Model controls:** `ModelRef` may set context depth, effort, thinking/budget, and sampling — applied only when the provider/model capability profile supports them; unsupported knobs fail closed (no silent ignore), especially for brain.
-- **Wire protocol:** versioned NDJSON / JSON-RPC-style events (status lexicon, usage, step progress) shared by text CLI and Rust TUI.
-- **Schemas:** Pydantic v2 in `contracts` (or `src/cuttle/contracts`).
-- **CLI:** `cuttle` entry — Rust TUI as default interactive path when available; Python text/`--plain` always works.
-- **Tests:** pytest (engine); Rust tests for TUI crate.
-- **Lint/format:** ruff (Python); rustfmt/clippy (TUI).
+- **Language:** Python 3.12+ (`pyproject.toml`)
+- **Orchestration:** LangGraph (planner, agent loop, sub-agents, verifier, integrator) + SQLite checkpointer
+- **Router / gateway:** LiteLLM as a library (Router); optional shared LiteLLM proxy for multi-machine / company gateway
+- **Decision:** typed `decide(state, questions)` → hosted Jev or local Jev-style (Winnow-12B / mini-jev)
+- **Local models:** llama-swap → llama.cpp (Linux); MLX / LM Studio (Mac); Ollama as a simpler option
+- **Code understanding:** tree-sitter repo map, ripgrep, embeddings in sqlite-vec or LanceDB
+- **TUI:** Textual (plan view, live steps, diffs, `/why`, `/cost`)
+- **Headless:** `cuttle run`, GitHub Action, JSON output
+- **Editors:** Agent Client Protocol (ACP)
+- **MCP:** official MCP Python SDK as client
+- **Schemas:** Pydantic v2 under `src/cuttle/contracts`
+- **Tests:** pytest; promptfoo for decision/prompt regressions
+- **Lint/format:** ruff
+- **Packaging:** uv or pipx + Homebrew (phase 10)
 
-Do not introduce a third language for the engine or move orchestration into Rust. Do not use community “LangGraph for Rust” as the control plane.
+Do not move the agent core to Rust. Do not add Deep Agents as a dependency. Do not treat “brain vs hands role pins” as the product — that was the previous sketch; the brief’s **per-step pool routing via `decide()`** is the product.
 
 ---
 
@@ -57,64 +63,63 @@ Do not introduce a third language for the engine or move orchestration into Rust
 
 ```text
 src/cuttle/
-  cli/              # thin Python entry / plain text / engine spawn helpers
-  orchestrator/     # LangGraph phase machine
-  contracts/        # Directive, Step, EvalReport, run events…
-  agents/           # AgentRuntime + Cuttle tool-loop implementation
-  middleware/       # scope guard, stuck detector
-  evals/            # deterministic checks
-  backends/         # model factory, adapters
-  providers/        # vendor registry + catalog
-  auth/             # credential store (login/list/logout)
-  provisioner/      # llmfit + HF/download + deploy
-crates/
-  cuttle-tui/       # Rust interactive TUI (event consumer only)
-docs/               # HLA, architecture, viability, diagrams
+  cli/              # cuttle init | run | doctor | …
+  tui/              # Textual interface
+  agent/            # LangGraph planner, loop, sub-agents, verifier, integrator
+  decide/           # decide() + Jev / local backends
+  router/           # LiteLLM pool, presets, privacy filter, budgets, cost
+  tools/            # edit, shell, search, git, MCP
+  index/            # repo map, embeddings
+  ledger/           # routing ledger + session store
+  evals/            # harness, baselines, calibration
+  sandbox/          # worktrees, bubblewrap/Seatbelt glue
+  contracts/        # Pydantic schemas
+docs/               # brief, HLA, architecture, viability, assets
 ```
 
-Prefer implementing the engine under `src/cuttle/`. Rust TUI lives under `crates/` (or equivalent). Do not put orchestration in the TUI crate.
+Prefer implementing under `src/cuttle/`. Do not invent a parallel engine layout that contradicts the brief.
 
 ---
 
 ## 5. How to work in this repo
 
-- **Docs-first for architecture.** If behaviour changes, update `docs/hla.md` (and diagrams if the loop changes).
-- **Diagrams:** use Shipmates `diagram` JSON → SVG under `docs/diagrams/` (not Mermaid-as-source-of-truth).
-- **No secrets in git.** Use `.env.example` only; real keys stay local.
-- **Small diffs.** Match existing style; do not drive-by refactor.
+- **Brief-first for product.** Behaviour changes update `docs/brief.md` and `docs/hla.md`.
+- **Diagrams:** Shipmates `diagram` JSON → SVG under `docs/diagrams/` when the loop changes.
+- **No secrets in git.** `.env.example` only.
+- **Small diffs.** Match existing style; no drive-by refactors.
 - **Do not commit** unless the user asks.
-- **British English** in user-facing docs and CLI help copy.
-- **No corporate hype** in docs ("game-changing", "revolutionary", etc.).
-- Prefer plain language over sales tone.
+- **British English** in user-facing docs and CLI help.
+- **No corporate hype** ("game-changing", "revolutionary").
+- Plain language over sales tone.
 
 ---
 
-## 6. Implementation order (from HLA)
+## 6. Implementation order (from the brief)
 
-When building runtime (only if asked):
+When building runtime (only if asked), follow phases **01 → 10**:
 
-1. Contracts (Pydantic)
-2. Eval engine
-3. Orchestrator LangGraph
-4. Cuttle `AgentRuntime` (brain read-only + hands tool host)
-5. Thin CLI (`cuttle implement` stub OK) + **versioned run-event stream**
-6. Provisioner (llmfit path)
-7. Peer-class harness polish (streaming, stuck detection, tool reliability) — still owned Python code
-8. Rust coastal TUI consuming the same events (E5)
+1. Pool + LiteLLM + `decide()` (Winnow first, then hosted Jev) + `cuttle init` sketch
+2. Single-model LangGraph agent loop + core tools + approvals + checkpoints
+3. Eval harness + single-model baselines
+4. Repo map + embeddings + context selection via `decide()`
+5. C0–C4 routing + presets + `/why` + cost estimates
+6. Planner + worktree sub-agents + verifier cascade + integrator
+7. Privacy, gitleaks, command risk, sandbox, injection suite
+8. Routing ledger + calibration + session replay
+9. Textual TUI, headless/GHA, ACP, MCP, skills, slash, hooks
+10. OTel, packaging, docs, demo
+
+Optional early spike: **pi extension** routing prototype as a baseline before full LangGraph (see brief).
 
 ---
 
 ## 7. Harness compatibility note
 
-These files exist so *other* agent CLIs behave the same while developing Cuttle:
-
 | File | Consumed by |
 |---|---|
-| `AGENTS.md` | Codex, Cursor, OpenCode (often), Windsurf, shared Agent Skills world |
+| `AGENTS.md` | Codex, Cursor, OpenCode, Windsurf, shared Agent Skills world |
 | `CLAUDE.md` | Claude Code (symlink → `AGENTS.md`) |
 | `.github/copilot-instructions.md` | GitHub Copilot |
 | `opencode.json` `instructions` | OpenCode (points at `AGENTS.md`) |
 
 Edit **`AGENTS.md` only**. Do not fork conflicting rules into harness-specific copies.
-
-Cuttle-the-product will later ship its own skills/commands for *end users*; that is separate from these *developer* instructions for working on this repository.
